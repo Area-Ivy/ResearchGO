@@ -1,0 +1,14 @@
+{
+  "default_user": {
+    "user_id": "default_user",
+    "subscriptions": [
+      {
+        "type": "journal",
+        "value": "arXiv (Cornell University)",
+        "display_name": "arXiv (Cornell University)",
+        "added_at": "2026-01-19T16:51:01.513046"
+      }
+    ],
+    "updated_at": "2026-01-19T16:51:01.513046"
+  }
+}

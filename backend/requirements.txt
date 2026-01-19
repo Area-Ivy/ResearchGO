@@ -9,4 +9,6 @@ minio==7.2.3
 python-multipart==0.0.6
 pdfplumber==0.11.0
 pypdf2==3.0.1
+pymilvus==2.3.3
+loguru==0.7.2
 
