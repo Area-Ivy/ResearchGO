@@ -3,7 +3,7 @@ import Home from '../views/Home.vue'
 import Chat from '../views/Chat.vue'
 import LiteratureSearch from '../views/LiteratureSearch.vue'
 import PaperLibrary from '../views/PaperLibrary.vue'
-import PaperMindmap from '../views/PaperMindmap.vue'
+import PaperReview from '../views/PaperReview.vue'
 
 const routes = [
   {
@@ -27,9 +27,9 @@ const routes = [
     component: PaperLibrary
   },
   {
-    path: '/mindmap',
-    name: 'PaperMindmap',
-    component: PaperMindmap
+    path: '/review',
+    name: 'PaperReview',
+    component: PaperReview
   }
 ]
 

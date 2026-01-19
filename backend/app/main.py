@@ -6,7 +6,7 @@ import logging
 import time
 
 from app.api import chat_router, literature_router
-from app.api import papers, mindmap
+from app.api import papers, mindmap, analysis
 
 # Load environment variables
 load_dotenv()
@@ -63,6 +63,7 @@ app.include_router(chat_router)
 app.include_router(literature_router)
 app.include_router(papers.router)
 app.include_router(mindmap.router)
+app.include_router(analysis.router)
 
 
 @app.get("/")
@@ -72,7 +73,7 @@ async def root():
         "message": "ResearchGO API",
         "version": "1.0.0",
         "status": "running",
-        "features": ["chat", "literature_search", "paper_library", "mindmap"]
+        "features": ["chat", "literature_search", "paper_library", "mindmap", "analysis"]
     }
 
 

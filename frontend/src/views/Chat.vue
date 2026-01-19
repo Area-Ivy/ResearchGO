@@ -257,6 +257,7 @@ const sendMessage = async () => {
   // Call real API
   isLoading.value = true
   error.value = null
+  let assistantMessageIndex = -1
   
   try {
     // Build conversation history for context
@@ -267,17 +268,6 @@ const sendMessage = async () => {
         role: m.role,
         content: typeof m.content === 'string' ? m.content.replace(/<[^>]*>/g, '') : m.content
       }))
-
-    // Create placeholder for assistant message
-    const assistantMessageIndex = messages.value.length
-    messages.value.push({
-      role: 'assistant',
-      content: '',
-      time: getCurrentTime()
-    })
-
-    await nextTick()
-    scrollToBottom()
 
     // Call API with SSE
     const response = await fetch(API_ENDPOINTS.CHAT_MESSAGE, {
@@ -324,6 +314,18 @@ const sendMessage = async () => {
             
             if (parsed.content) {
               fullResponse += parsed.content
+              
+              // Create placeholder message when first content arrives
+              if (assistantMessageIndex === -1) {
+                isLoading.value = false
+                assistantMessageIndex = messages.value.length
+                messages.value.push({
+                  role: 'assistant',
+                  content: '',
+                  time: getCurrentTime()
+                })
+              }
+              
               // Render LaTeX first, then markdown
               const latexRendered = renderLatex(fullResponse)
               messages.value[assistantMessageIndex].content = marked(latexRendered)
@@ -352,18 +354,27 @@ const sendMessage = async () => {
     console.error('Error sending message:', err)
     error.value = err.message || 'Failed to send message. Please try again.'
     
-    // Add error message
-    messages.value.push({
-      role: 'assistant',
-      content: `<div class="error-message">
+    isLoading.value = false
+    
+    // Update placeholder message with error or create new one
+    if (assistantMessageIndex >= 0 && messages.value[assistantMessageIndex]) {
+      messages.value[assistantMessageIndex].content = `<div class="error-message">
         <strong>Error:</strong> ${error.value}
         <br><br>
         Please make sure the backend server is running and the OpenAI API key is configured.
-      </div>`,
-      time: getCurrentTime()
-    })
-    
-    isLoading.value = false
+      </div>`
+    } else {
+      // Add new error message if placeholder doesn't exist yet
+      messages.value.push({
+        role: 'assistant',
+        content: `<div class="error-message">
+          <strong>Error:</strong> ${error.value}
+          <br><br>
+          Please make sure the backend server is running and the OpenAI API key is configured.
+        </div>`,
+        time: getCurrentTime()
+      })
+    }
     
     await nextTick()
     scrollToBottom()

@@ -1,7 +1,7 @@
 <template>
-  <div class="mindmap-container">
+  <div class="review-container">
     <!-- Header -->
-    <div class="mindmap-header">
+    <div class="review-header">
       <div class="header-section">
         <h1 class="page-title">Paper Analysis Workspace</h1>
         <p class="page-subtitle">AI-powered multi-dimensional paper understanding system</p>
@@ -179,17 +179,159 @@
                   <path d="m19 9-5 5-4-4-3 3"></path>
                 </svg>
                 <h3>Paper Analysis</h3>
-                <span class="badge badge-secondary">Coming Soon</span>
+                <span class="badge badge-primary" v-if="analysisGenerated">Generated</span>
+              </div>
+              <div class="feature-controls">
+                <button 
+                  v-if="!analysisGenerated" 
+                  @click="generateAnalysis" 
+                  :disabled="generatingAnalysis || !selectedPaper"
+                  class="btn btn-primary btn-sm"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" v-if="!generatingAnalysis">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                  </svg>
+                  <span>{{ generatingAnalysis ? 'Analyzing...' : 'Generate Analysis' }}</span>
+                </button>
+                <button 
+                  v-if="analysisGenerated" 
+                  @click="regenerateAnalysis" 
+                  :disabled="generatingAnalysis"
+                  class="btn btn-secondary btn-sm"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="1 4 1 10 7 10"></polyline>
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                  </svg>
+                  <span>Regenerate</span>
+                </button>
               </div>
             </div>
             <div class="feature-body">
-              <div class="empty-state">
+              <div v-if="generatingAnalysis" class="loading-overlay">
+                <div class="spinner"></div>
+                <p>AI正在深度分析论文...</p>
+                <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 8px;">预计需要20-60秒</p>
+              </div>
+              <div v-else-if="analysisGenerated && analysisData" class="analysis-content">
+                <div class="analysis-section">
+                  <div class="section-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                    <h4>论文标题</h4>
+                  </div>
+                  <p class="section-content highlight-title">{{ analysisData.title }}</p>
+                </div>
+
+                <div class="analysis-section">
+                  <div class="section-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M4 7h16M4 12h16M4 17h10"></path>
+                    </svg>
+                    <h4>摘要</h4>
+                  </div>
+                  <p class="section-content">{{ analysisData.abstract }}</p>
+                </div>
+
+                <div class="analysis-section">
+                  <div class="section-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <path d="M12 16v-4M12 8h.01"></path>
+                    </svg>
+                    <h4>研究背景</h4>
+                  </div>
+                  <p class="section-content">{{ analysisData.research_background }}</p>
+                </div>
+
+                <div class="analysis-section">
+                  <div class="section-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"></path>
+                    </svg>
+                    <h4>研究问题</h4>
+                  </div>
+                  <p class="section-content">{{ analysisData.research_problem }}</p>
+                </div>
+
+                <div class="analysis-section">
+                  <div class="section-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                      <path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                    </svg>
+                    <h4>研究方法</h4>
+                  </div>
+                  <p class="section-content">{{ analysisData.methodology }}</p>
+                </div>
+
+                <div class="analysis-section highlight">
+                  <div class="section-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M3 3v18h18"></path>
+                      <path d="m19 9-5 5-4-4-3 3"></path>
+                    </svg>
+                    <h4>主要发现</h4>
+                  </div>
+                  <p class="section-content">{{ analysisData.key_findings }}</p>
+                </div>
+
+                <div class="analysis-section highlight">
+                  <div class="section-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+                    </svg>
+                    <h4>创新点</h4>
+                  </div>
+                  <p class="section-content">{{ analysisData.innovations }}</p>
+                </div>
+
+                <div class="analysis-section">
+                  <div class="section-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                      <line x1="12" y1="9" x2="12" y2="13"></line>
+                      <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    <h4>局限性</h4>
+                  </div>
+                  <p class="section-content">{{ analysisData.limitations }}</p>
+                </div>
+
+                <div class="analysis-section">
+                  <div class="section-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="12" y1="18" x2="12" y2="12"></line>
+                      <line x1="9" y1="15" x2="15" y2="15"></line>
+                    </svg>
+                    <h4>未来工作</h4>
+                  </div>
+                  <p class="section-content">{{ analysisData.future_work }}</p>
+                </div>
+
+                <div class="analysis-section">
+                  <div class="section-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="9 11 12 14 22 4"></polyline>
+                      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                    </svg>
+                    <h4>结论</h4>
+                  </div>
+                  <p class="section-content">{{ analysisData.conclusion }}</p>
+                </div>
+              </div>
+              <div v-else class="empty-state">
                 <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.3;">
                   <path d="M3 3v18h18"></path>
                   <path d="m19 9-5 5-4-4-3 3"></path>
                 </svg>
-                <h3>即将推出</h3>
-                <p>论文深度分析功能开发中...</p>
+                <h3 style="color: var(--text-primary); margin: 16px 0 8px;">准备分析</h3>
+                <p style="color: var(--text-secondary);">{{ selectedPaper ? '点击"生成分析"开始AI分析' : '请先选择一篇论文' }}</p>
               </div>
             </div>
           </div>
@@ -266,12 +408,13 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { listPapers, downloadPaper } from '../api/papers'
 import { generateMindmap as generateMindmapAPI } from '../api/mindmap'
+import { generateAnalysis as generateAnalysisAPI } from '../api/analysis'
 import jsMind from 'jsmind'
 import 'jsmind/style/jsmind.css'
 import { API_BASE_URL } from '../config'
 
 export default {
-  name: 'PaperMindmap',
+  name: 'PaperReview',
   setup() {
     // 状态管理
     const loading = ref(false)
@@ -335,6 +478,11 @@ export default {
     const mindmapData = ref(null)
     let jsMindInstance = null
 
+    // 分析相关
+    const generatingAnalysis = ref(false)
+    const analysisGenerated = ref(false)
+    const analysisData = ref(null)
+
     // 加载论文列表
     const loadPapers = async () => {
       loading.value = true
@@ -363,6 +511,8 @@ export default {
       pdfUrl.value = ''
       mindmapGenerated.value = false
       mindmapData.value = null
+      analysisGenerated.value = false
+      analysisData.value = null
       
       // 清空思维导图
       if (jsMindInstance) {
@@ -423,7 +573,7 @@ export default {
       if (!jsmindInner) return
       
       // 设置初始样式
-      jsmindInner.style.transformOrigin = 'center center'
+      jsmindInner.style.transformOrigin = '0 0'
       jsmindInner.style.transition = 'transform 0.2s ease-out'
       
       // 滚轮缩放 - 按住Ctrl键时缩放，否则正常滚动
@@ -431,10 +581,28 @@ export default {
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault()
           
-          const delta = e.deltaY > 0 ? 0.9 : 1.1
-          scale = Math.min(Math.max(scale * delta, 0.5), 2)
+          // 记录缩放前的滚动位置和鼠标位置
+          const rect = container.getBoundingClientRect()
+          const mouseX = e.clientX - rect.left
+          const mouseY = e.clientY - rect.top
           
+          // 计算鼠标相对于容器内容的位置（考虑当前滚动和缩放）
+          const scrollLeft = container.scrollLeft
+          const scrollTop = container.scrollTop
+          const contentX = (mouseX + scrollLeft) / scale
+          const contentY = (mouseY + scrollTop) / scale
+          
+          // 计算新的缩放比例
+          const delta = e.deltaY > 0 ? 0.9 : 1.1
+          const newScale = Math.min(Math.max(scale * delta, 0.5), 2)
+          
+          // 应用缩放
+          scale = newScale
           jsmindInner.style.transform = `scale(${scale})`
+          
+          // 调整滚动位置，使鼠标指向的内容位置保持不变
+          container.scrollLeft = contentX * scale - mouseX
+          container.scrollTop = contentY * scale - mouseY
         }
         // 不按Ctrl键时，允许正常滚动
       }, { passive: false })
@@ -442,12 +610,24 @@ export default {
       // 双击重置
       container.addEventListener('dblclick', (e) => {
         if (e.target === container || e.target.classList.contains('jsmind-inner')) {
+          // 记录当前中心位置
+          const scrollLeft = container.scrollLeft
+          const scrollTop = container.scrollTop
+          const centerX = (scrollLeft + container.clientWidth / 2) / scale
+          const centerY = (scrollTop + container.clientHeight / 2) / scale
+          
           scale = 1
           jsmindInner.style.transition = 'transform 0.3s ease'
           jsmindInner.style.transform = 'scale(1)'
+          
+          // 调整滚动位置以保持中心点不变
           setTimeout(() => {
-            jsmindInner.style.transition = 'transform 0.2s ease-out'
-          }, 300)
+            container.scrollLeft = centerX - container.clientWidth / 2
+            container.scrollTop = centerY - container.clientHeight / 2
+            setTimeout(() => {
+              jsmindInner.style.transition = 'transform 0.2s ease-out'
+            }, 50)
+          }, 50)
         }
       })
     }
@@ -501,6 +681,42 @@ export default {
       }
     }
 
+    // 生成分析
+    const generateAnalysis = async () => {
+      if (!selectedPaper.value) return
+      
+      generatingAnalysis.value = true
+      try {
+        const result = await generateAnalysisAPI(
+          selectedPaper.value.object_name,
+          'zh'
+        )
+        
+        if (result.success) {
+          if (!result.analysis) {
+            throw new Error('后端返回的分析数据为空')
+          }
+          console.log('Received analysis data:', result.analysis)
+          analysisData.value = result.analysis
+          analysisGenerated.value = true
+        } else {
+          throw new Error(result.message || '生成分析失败')
+        }
+      } catch (error) {
+        console.error('Failed to generate analysis:', error)
+        alert('生成分析失败：' + (error.response?.data?.detail || error.message))
+      } finally {
+        generatingAnalysis.value = false
+      }
+    }
+
+    // 重新生成分析
+    const regenerateAnalysis = async () => {
+      analysisGenerated.value = false
+      analysisData.value = null
+      await generateAnalysis()
+    }
+
     // 格式化文件大小
     const formatSize = (bytes) => {
       if (bytes === 0) return '0 B'
@@ -545,10 +761,15 @@ export default {
       mindmapContainer,
       generatingMindmap,
       mindmapGenerated,
+      generatingAnalysis,
+      analysisGenerated,
+      analysisData,
       selectPaper,
       resetSelection,
       generateMindmap,
       regenerateMindmap,
+      generateAnalysis,
+      regenerateAnalysis,
       formatSize,
       formatDate
     }
@@ -557,7 +778,7 @@ export default {
 </script>
 
 <style scoped>
-.mindmap-container {
+.review-container {
   max-width: 1600px;
   margin: 0 auto;
   height: calc(100vh - 64px);
@@ -566,7 +787,7 @@ export default {
 }
 
 /* Header */
-.mindmap-header {
+.review-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -1215,7 +1436,7 @@ export default {
 
 /* 响应式设计 */
 @media (max-width: 1200px) {
-  .mindmap-header {
+  .review-header {
     flex-direction: column;
   }
 
@@ -1231,7 +1452,7 @@ export default {
 }
 
 @media (max-width: 768px) {
-  .mindmap-container {
+  .review-container {
     height: auto;
   }
 
@@ -1265,6 +1486,99 @@ export default {
   .paper-item {
     padding: 12px;
   }
+}
+
+/* 分析内容样式 */
+.analysis-content {
+  height: 100%;
+  overflow-y: auto;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.analysis-section {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+.analysis-section:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.2);
+  transform: translateY(-2px);
+}
+
+.analysis-section.highlight {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.analysis-section.highlight:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid rgba(99, 102, 241, 0.2);
+}
+
+.section-header svg {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.section-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.3px;
+}
+
+.section-content {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.highlight-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+/* 滚动条样式 */
+.analysis-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.analysis-content::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.analysis-content::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.4);
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
+.analysis-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.6);
 }
 
 /* 动画 */

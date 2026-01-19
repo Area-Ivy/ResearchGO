@@ -67,7 +67,7 @@
             <span class="link-text">Paper Library</span>
           </router-link>
           
-          <router-link to="/mindmap" class="sidebar-link" @click="closeSidebarOnMobile" :title="sidebarCollapsed ? 'Paper Mindmap' : ''">
+          <router-link to="/review" class="sidebar-link" @click="closeSidebarOnMobile" :title="sidebarCollapsed ? 'Paper Review' : ''">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="2"></circle>
               <path d="M12 2v4"></path>
@@ -79,7 +79,7 @@
               <path d="m4.93 19.07 2.83-2.83"></path>
               <path d="m16.24 7.76 2.83-2.83"></path>
             </svg>
-            <span class="link-text">Paper Mindmap</span>
+            <span class="link-text">Paper Review</span>
           </router-link>
         </nav>
         
@@ -116,7 +116,7 @@
         'main-collapsed': sidebarCollapsed
       }">
         <router-view v-slot="{ Component }">
-          <keep-alive :include="['Dashboard', 'Chat', 'Literature', 'PaperLibrary', 'PaperMindmap']">
+          <keep-alive :include="['Dashboard', 'Chat', 'Literature', 'PaperLibrary', 'PaperReview']">
             <component :is="Component" />
         </keep-alive>
         </router-view>
