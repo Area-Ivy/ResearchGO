@@ -112,4 +112,33 @@ class OpenAIService:
             
         except Exception as e:
             return f"[Error: {str(e)}]"
+    
+    async def generate_embeddings(
+        self,
+        texts: List[str],
+        model: str = "text-embedding-3-small"
+    ) -> List[List[float]]:
+        """
+        Generate embeddings for a list of texts
+        
+        Args:
+            texts: List of text strings to embed
+            model: Embedding model to use (default: text-embedding-3-small)
+            
+        Returns:
+            List[List[float]]: List of embedding vectors
+        """
+        try:
+            response = await self.client.embeddings.create(
+                model=model,
+                input=texts
+            )
+            
+            embeddings = [item.embedding for item in response.data]
+            logger.info(f"Generated {len(embeddings)} embeddings")
+            return embeddings
+            
+        except Exception as e:
+            logger.error(f"Error generating embeddings: {str(e)}")
+            raise Exception(f"Failed to generate embeddings: {str(e)}")
 

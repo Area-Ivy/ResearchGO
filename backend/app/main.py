@@ -7,6 +7,7 @@ import time
 
 from app.api import chat_router, literature_router
 from app.api import papers, mindmap, analysis
+from app.routers import milvus
 
 # Load environment variables
 load_dotenv()
@@ -64,6 +65,7 @@ app.include_router(literature_router)
 app.include_router(papers.router)
 app.include_router(mindmap.router)
 app.include_router(analysis.router)
+app.include_router(milvus.router)
 
 
 @app.get("/")
@@ -73,7 +75,7 @@ async def root():
         "message": "ResearchGO API",
         "version": "1.0.0",
         "status": "running",
-        "features": ["chat", "literature_search", "paper_library", "mindmap", "analysis"]
+        "features": ["chat", "literature_search", "paper_library", "mindmap", "analysis", "milvus"]
     }
 
 
@@ -107,7 +109,7 @@ async def startup_event():
     contact_email = os.getenv('CONTACT_EMAIL', 'Not set')
     logger.info(f"📧 Contact email for OpenAlex: {contact_email}")
     
-    logger.info("✓ Features: Chat, Literature Search (OpenAlex), Paper Library (MinIO), Mindmap")
+    logger.info("✓ Features: Chat, Literature Search (OpenAlex), Paper Library (MinIO), Mindmap, Milvus")
     
     # Check MinIO configuration
     minio_endpoint = os.getenv('MINIO_ENDPOINT', 'Not set')

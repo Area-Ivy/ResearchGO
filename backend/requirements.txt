@@ -1,6 +1,6 @@
 fastapi==0.109.0
 uvicorn==0.27.0
-python-dotenv==1.0.0
+python-dotenv>=1.0.1
 openai==1.54.0
 pydantic==2.5.3
 sse-starlette==1.8.2
@@ -9,6 +9,6 @@ minio==7.2.3
 python-multipart==0.0.6
 pdfplumber==0.11.0
 pypdf2==3.0.1
-pymilvus==2.3.3
-loguru==0.7.2
+pymilvus>=2.6.6
+loguru>=0.7.3
 

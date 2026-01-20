@@ -8,6 +8,8 @@ AI-powered research assistant with intelligent chat, literature search, and anal
 - 🧮 **Math Formula Rendering**: LaTeX/KaTeX support for mathematical expressions
 - 📚 **Literature Search**: Search 250M+ academic papers from OpenAlex
 - 🔍 **Smart Filtering**: Filter by year, citations, open access, and more
+- 🧠 **Vector Search**: Semantic search powered by Milvus vector database
+- 🎯 **Similarity Detection**: Find similar papers based on content meaning
 - 📝 **AI Summarization**: Generate structured summaries of research papers
 - 📄 **Citation Export**: Export in BibTeX, RIS, APA, and MLA formats
 - 🔗 **Chat Integration**: Discuss papers directly with AI assistant
@@ -32,6 +34,12 @@ AI-powered research assistant with intelligent chat, literature search, and anal
 - OpenAlex API (academic search)
 - SSE (Server-Sent Events)
 - Python 3.9+
+
+### Infrastructure
+- **Milvus 2.3.3** - 向量数据库，用于语义搜索
+- **Attu** - Milvus 可视化管理界面
+- **MinIO** - 对象存储服务
+- **etcd** - 分布式配置存储
 
 ## Quick Start
 
@@ -106,6 +114,48 @@ AI-powered research assistant with intelligent chat, literature search, and anal
 
    Frontend will be available at: `http://localhost:5173`
 
+### Milvus 向量数据库设置
+
+1. **启动 Milvus 和相关服务：**
+   ```bash
+   docker-compose up -d
+   ```
+
+2. **验证服务状态：**
+   ```bash
+   docker-compose ps
+   ```
+   
+   确保以下服务都在运行：
+   - ✅ Milvus (端口 19530, 9091)
+   - ✅ Attu (端口 9002) - 可视化管理界面
+   - ✅ etcd (健康状态)
+   - ✅ MinIO (端口 9000, 9001)
+
+3. **访问 Attu 管理界面：**
+   - 打开浏览器访问：`http://localhost:9002`
+   - 连接地址输入：`localhost:19530`
+   - 点击 "Connect" 连接
+
+4. **使用 Python 连接：**
+   ```python
+   from app.services.milvus_service import milvus_service
+   
+   # 连接到 Milvus
+   milvus_service.connect()
+   
+   # 创建集合
+   milvus_service.create_collection(dim=768)
+   
+   # 创建索引
+   milvus_service.create_index()
+   ```
+
+5. **详细使用指南：**
+   - 📖 [Milvus 使用指南](docs/MILVUS_USAGE.md) - 完整的使用教程
+   - 📖 [Milvus 部署文档](docs/MILVUS_SETUP.md) - 部署和配置说明
+   - 📖 [快速开始](docs/QUICK_START.md) - 快速入门指南
+
 ## Usage
 
 ### Dashboard
@@ -117,6 +167,14 @@ Visit `http://localhost:5173/` to see:
 - Cognitive architecture radar chart
 - Neural imprint trends
 - Background synthesis queue
+
+### Milvus Manager
+Visit `http://localhost:5173/milvus` to:
+- View all vector collections
+- Create and delete collections  
+- Load/Release collections from memory
+- Monitor collection statistics
+- View collection details and schemas
 
 ### Chat Assistant
 Visit `http://localhost:5173/chat` to:

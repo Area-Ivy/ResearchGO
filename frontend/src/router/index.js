@@ -4,6 +4,7 @@ import Chat from '../views/Chat.vue'
 import LiteratureSearch from '../views/LiteratureSearch.vue'
 import PaperLibrary from '../views/PaperLibrary.vue'
 import PaperReview from '../views/PaperReview.vue'
+import MilvusManager from '../views/MilvusManager.vue'
 
 const routes = [
   {
@@ -30,6 +31,11 @@ const routes = [
     path: '/review',
     name: 'PaperReview',
     component: PaperReview
+  },
+  {
+    path: '/milvus',
+    name: 'MilvusManager',
+    component: MilvusManager
   }
 ]
 

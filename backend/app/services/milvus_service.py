@@ -104,7 +104,18 @@ class MilvusService:
                     name="paper_id",
                     dtype=DataType.VARCHAR,
                     max_length=255,
-                    description="论文ID"
+                    description="论文ID（MinIO对象名）"
+                ),
+                FieldSchema(
+                    name="chunk_id",
+                    dtype=DataType.VARCHAR,
+                    max_length=300,
+                    description="Chunk ID（paper_id#chunk_index）"
+                ),
+                FieldSchema(
+                    name="chunk_index",
+                    dtype=DataType.INT64,
+                    description="Chunk索引（0开始）"
                 ),
                 FieldSchema(
                     name="embedding",
@@ -119,16 +130,39 @@ class MilvusService:
                     description="论文标题"
                 ),
                 FieldSchema(
-                    name="abstract",
+                    name="file_name",
+                    dtype=DataType.VARCHAR,
+                    max_length=500,
+                    description="原始文件名"
+                ),
+                FieldSchema(
+                    name="content",
                     dtype=DataType.VARCHAR,
                     max_length=65535,
-                    description="论文摘要"
+                    description="Chunk文本内容"
+                ),
+                FieldSchema(
+                    name="chunk_chars",
+                    dtype=DataType.INT64,
+                    description="Chunk字符数"
+                ),
+                FieldSchema(
+                    name="page_range",
+                    dtype=DataType.VARCHAR,
+                    max_length=50,
+                    description="页码范围（如: 1-3）"
+                ),
+                FieldSchema(
+                    name="upload_time",
+                    dtype=DataType.VARCHAR,
+                    max_length=50,
+                    description="上传时间（ISO格式）"
                 ),
                 FieldSchema(
                     name="source",
                     dtype=DataType.VARCHAR,
                     max_length=100,
-                    description="来源（title/abstract/full_text）"
+                    description="来源类型（chunk/full_text）"
                 ),
             ]
             
@@ -196,19 +230,31 @@ class MilvusService:
     def insert_vectors(
         self,
         paper_ids: List[str],
+        chunk_ids: List[str],
+        chunk_indices: List[int],
         embeddings: List[List[float]],
         titles: List[str],
-        abstracts: List[str],
+        file_names: List[str],
+        contents: List[str],
+        chunk_chars: List[int],
+        page_ranges: List[str],
+        upload_times: List[str],
         sources: List[str]
     ) -> bool:
         """
-        插入向量数据
+        插入向量数据（支持chunk和metadata）
         
         Args:
             paper_ids: 论文ID列表
+            chunk_ids: Chunk ID列表
+            chunk_indices: Chunk索引列表
             embeddings: 向量嵌入列表
             titles: 标题列表
-            abstracts: 摘要列表
+            file_names: 原始文件名列表
+            contents: 内容列表（chunk文本）
+            chunk_chars: 字符数列表
+            page_ranges: 页码范围列表
+            upload_times: 上传时间列表
             sources: 来源列表
             
         Returns:
@@ -219,12 +265,18 @@ class MilvusService:
                 logger.error("集合未初始化")
                 return False
             
-            # 构建实体数据
+            # 构建实体数据（按schema字段顺序，不包括auto_id字段）
             entities = [
                 paper_ids,
+                chunk_ids,
+                chunk_indices,
                 embeddings,
                 titles,
-                abstracts,
+                file_names,
+                contents,
+                chunk_chars,
+                page_ranges,
+                upload_times,
                 sources
             ]
             
@@ -234,7 +286,7 @@ class MilvusService:
             # 刷新数据到磁盘
             self.collection.flush()
             
-            logger.info(f"成功插入 {len(paper_ids)} 条向量数据")
+            logger.info(f"成功插入 {len(paper_ids)} 条向量数据（chunks with metadata）")
             return True
             
         except Exception as e:
@@ -246,7 +298,8 @@ class MilvusService:
         query_vectors: List[List[float]],
         top_k: int = 10,
         metric_type: str = "L2",
-        search_params: Optional[Dict[str, Any]] = None
+        search_params: Optional[Dict[str, Any]] = None,
+        filter_expr: Optional[str] = None
     ) -> List[List[Dict[str, Any]]]:
         """
         搜索相似向量
@@ -256,6 +309,7 @@ class MilvusService:
             top_k: 返回最相似的 top_k 个结果
             metric_type: 距离度量类型
             search_params: 搜索参数
+            filter_expr: 过滤表达式（如: 'paper_id == "xxx"'）
             
         Returns:
             搜索结果列表
@@ -272,16 +326,27 @@ class MilvusService:
             if search_params is None:
                 search_params = {"metric_type": metric_type, "params": {"nprobe": 10}}
             
-            # 执行搜索
-            results = self.collection.search(
-                data=query_vectors,
-                anns_field="embedding",
-                param=search_params,
-                limit=top_k,
-                output_fields=["paper_id", "title", "abstract", "source"]
-            )
+            # 执行搜索（返回所有metadata字段）
+            search_kwargs = {
+                "data": query_vectors,
+                "anns_field": "embedding",
+                "param": search_params,
+                "limit": top_k,
+                "output_fields": [
+                    "paper_id", "chunk_id", "chunk_index", 
+                    "title", "file_name", "content", "chunk_chars", 
+                    "page_range", "upload_time", "source"
+                ]
+            }
             
-            # 格式化结果
+            # 如果有过滤表达式，添加到搜索参数
+            if filter_expr:
+                search_kwargs["expr"] = filter_expr
+                logger.info(f"使用过滤表达式: {filter_expr}")
+            
+            results = self.collection.search(**search_kwargs)
+            
+            # 格式化结果（包含所有metadata）
             formatted_results = []
             for hits in results:
                 hits_list = []
@@ -289,9 +354,18 @@ class MilvusService:
                     hits_list.append({
                         "id": hit.id,
                         "distance": hit.distance,
+                        "relevance_score": 1 / (1 + hit.distance),  # 转换为相关性分数
+                        # Paper 基本信息
                         "paper_id": hit.entity.get("paper_id"),
                         "title": hit.entity.get("title"),
-                        "abstract": hit.entity.get("abstract"),
+                        "file_name": hit.entity.get("file_name"),
+                        "upload_time": hit.entity.get("upload_time"),
+                        # Chunk 信息
+                        "chunk_id": hit.entity.get("chunk_id"),
+                        "chunk_index": hit.entity.get("chunk_index"),
+                        "content": hit.entity.get("content"),
+                        "chunk_chars": hit.entity.get("chunk_chars"),
+                        "page_range": hit.entity.get("page_range"),
                         "source": hit.entity.get("source")
                     })
                 formatted_results.append(hits_list)

@@ -73,3 +73,21 @@ export async function checkHealth() {
   return response.data
 }
 
+/**
+ * 论文问答 - AI 助手
+ * @param {string} paperId - 论文ID
+ * @param {string} question - 用户问题
+ * @param {Array} chatHistory - 聊天历史 [{role: 'user'|'assistant', content: '...'}]
+ * @param {number} topK - 检索相关内容数量
+ * @returns {Promise} 问答结果
+ */
+export async function paperQA(paperId, question, chatHistory = [], topK = 10) {
+  const response = await axios.post(`${API_BASE_URL}/api/papers/qa`, {
+    paper_id: paperId,
+    question: question,
+    chat_history: chatHistory,
+    top_k: topK
+  })
+  return response.data
+}
+

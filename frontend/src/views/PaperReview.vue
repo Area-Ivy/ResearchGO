@@ -20,11 +20,11 @@
       </div>
     </div>
 
-    <!-- 论文选择对话框 -->
+    <!-- Paper Selection Dialog -->
     <div v-if="showPaperList" class="modal-overlay" @click="showPaperList = false">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h2>选择论文</h2>
+          <h2>Select Paper</h2>
           <button @click="showPaperList = false" class="btn-close">&times;</button>
         </div>
         <div class="modal-body">
@@ -52,8 +52,8 @@
               <div class="paper-info">
                 <h3>{{ paper.original_name }}</h3>
                 <p class="paper-meta">
-                  大小: {{ formatSize(paper.size) }} | 
-                  上传时间: {{ formatDate(paper.last_modified) }}
+                  Size: {{ formatSize(paper.size) }} | 
+                  Uploaded: {{ formatDate(paper.last_modified) }}
                 </p>
               </div>
             </div>
@@ -62,9 +62,9 @@
       </div>
     </div>
 
-    <!-- 主要内容区域 - 始终显示左右布局 -->
+    <!-- Main Content Area -->
     <div class="content-wrapper">
-      <!-- 左侧：PDF阅读器 -->
+      <!-- Left: PDF Viewer -->
       <div class="pdf-viewer-panel">
         <div class="pdf-viewer">
           <iframe 
@@ -91,9 +91,9 @@
         </div>
       </div>
 
-      <!-- 右侧：功能面板 -->
+      <!-- Right: Feature Panel -->
       <div class="feature-panel">
-        <!-- 功能标签栏 -->
+        <!-- Feature Tabs -->
         <div class="feature-tabs">
           <button 
             v-for="tab in featureTabs" 
@@ -106,9 +106,9 @@
           </button>
         </div>
 
-        <!-- 功能内容区 -->
+        <!-- Feature Content -->
         <div class="feature-content">
-          <!-- 思维导图 -->
+          <!-- Mind Map -->
           <div v-show="activeTab === 'mindmap'" class="feature-view">
             <div class="feature-header">
               <div class="feature-title">
@@ -149,8 +149,8 @@
               <div ref="mindmapContainer" class="jsmind-container" v-show="mindmapGenerated"></div>
               <div v-if="generatingMindmap" class="loading-overlay">
                 <div class="spinner"></div>
-                <p>AI正在分析论文并生成思维导图...</p>
-                <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 8px;">预计需要10-30秒</p>
+                <p>AI is analyzing the paper and generating the mind map...</p>
+                <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 8px;">Estimated time: 10-30 seconds</p>
               </div>
               <div v-else-if="!mindmapGenerated" class="empty-state">
                 <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.3;">
@@ -164,13 +164,13 @@
                   <path d="m4.93 19.07 2.83-2.83"></path>
                   <path d="m16.24 7.76 2.83-2.83"></path>
                 </svg>
-                <h3 style="color: var(--text-primary); margin: 16px 0 8px;">准备生成</h3>
-                <p style="color: var(--text-secondary);">点击"生成思维导图"开始AI分析</p>
+                <h3 style="color: var(--text-primary); margin: 16px 0 8px;">Ready to Generate</h3>
+                <p style="color: var(--text-secondary);">Click "Generate Map" to start AI analysis</p>
               </div>
             </div>
           </div>
 
-          <!-- 分析 -->
+          <!-- Analysis -->
           <div v-show="activeTab === 'analysis'" class="feature-view">
             <div class="feature-header">
               <div class="feature-title">
@@ -210,8 +210,8 @@
             <div class="feature-body">
               <div v-if="generatingAnalysis" class="loading-overlay">
                 <div class="spinner"></div>
-                <p>AI正在深度分析论文...</p>
-                <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 8px;">预计需要20-60秒</p>
+                <p>AI is deeply analyzing the paper...</p>
+                <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 8px;">Estimated time: 20-60 seconds</p>
               </div>
               <div v-else-if="analysisGenerated && analysisData" class="analysis-content">
                 <div class="analysis-section">
@@ -220,7 +220,7 @@
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                       <polyline points="14 2 14 8 20 8"></polyline>
                     </svg>
-                    <h4>论文标题</h4>
+                    <h4>Paper Title</h4>
                   </div>
                   <p class="section-content highlight-title">{{ analysisData.title }}</p>
                 </div>
@@ -230,7 +230,7 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M4 7h16M4 12h16M4 17h10"></path>
                     </svg>
-                    <h4>摘要</h4>
+                    <h4>Abstract</h4>
                   </div>
                   <p class="section-content">{{ analysisData.abstract }}</p>
                 </div>
@@ -241,7 +241,7 @@
                       <circle cx="12" cy="12" r="10"></circle>
                       <path d="M12 16v-4M12 8h.01"></path>
                     </svg>
-                    <h4>研究背景</h4>
+                    <h4>Research Background</h4>
                   </div>
                   <p class="section-content">{{ analysisData.research_background }}</p>
                 </div>
@@ -252,7 +252,7 @@
                       <circle cx="12" cy="12" r="10"></circle>
                       <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"></path>
                     </svg>
-                    <h4>研究问题</h4>
+                    <h4>Research Problem</h4>
                   </div>
                   <p class="section-content">{{ analysisData.research_problem }}</p>
                 </div>
@@ -263,7 +263,7 @@
                       <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
                       <path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path>
                     </svg>
-                    <h4>研究方法</h4>
+                    <h4>Methodology</h4>
                   </div>
                   <p class="section-content">{{ analysisData.methodology }}</p>
                 </div>
@@ -274,7 +274,7 @@
                       <path d="M3 3v18h18"></path>
                       <path d="m19 9-5 5-4-4-3 3"></path>
                     </svg>
-                    <h4>主要发现</h4>
+                    <h4>Key Findings</h4>
                   </div>
                   <p class="section-content">{{ analysisData.key_findings }}</p>
                 </div>
@@ -284,7 +284,7 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
                     </svg>
-                    <h4>创新点</h4>
+                    <h4>Innovations</h4>
                   </div>
                   <p class="section-content">{{ analysisData.innovations }}</p>
                 </div>
@@ -296,7 +296,7 @@
                       <line x1="12" y1="9" x2="12" y2="13"></line>
                       <line x1="12" y1="17" x2="12.01" y2="17"></line>
                     </svg>
-                    <h4>局限性</h4>
+                    <h4>Limitations</h4>
                   </div>
                   <p class="section-content">{{ analysisData.limitations }}</p>
                 </div>
@@ -309,7 +309,7 @@
                       <line x1="12" y1="18" x2="12" y2="12"></line>
                       <line x1="9" y1="15" x2="15" y2="15"></line>
                     </svg>
-                    <h4>未来工作</h4>
+                    <h4>Future Work</h4>
                   </div>
                   <p class="section-content">{{ analysisData.future_work }}</p>
                 </div>
@@ -320,7 +320,7 @@
                       <polyline points="9 11 12 14 22 4"></polyline>
                       <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
                     </svg>
-                    <h4>结论</h4>
+                    <h4>Conclusion</h4>
                   </div>
                   <p class="section-content">{{ analysisData.conclusion }}</p>
                 </div>
@@ -330,13 +330,13 @@
                   <path d="M3 3v18h18"></path>
                   <path d="m19 9-5 5-4-4-3 3"></path>
                 </svg>
-                <h3 style="color: var(--text-primary); margin: 16px 0 8px;">准备分析</h3>
-                <p style="color: var(--text-secondary);">{{ selectedPaper ? '点击"生成分析"开始AI分析' : '请先选择一篇论文' }}</p>
+                <h3 style="color: var(--text-primary); margin: 16px 0 8px;">Ready to Analyze</h3>
+                <p style="color: var(--text-secondary);">{{ selectedPaper ? 'Click "Generate Analysis" to start AI analysis' : 'Please select a paper first' }}</p>
               </div>
             </div>
           </div>
 
-          <!-- 关系图谱 -->
+          <!-- Citation Graph -->
           <div v-show="activeTab === 'graph'" class="feature-view">
             <div class="feature-header">
               <div class="feature-title">
@@ -365,13 +365,13 @@
                   <path d="M10.5 13.5 6 18"></path>
                   <path d="M13.5 13.5 18 18"></path>
                 </svg>
-                <h3>即将推出</h3>
-                <p>论文引用关系星图功能开发中...</p>
+                <h3>Coming Soon</h3>
+                <p>Citation relationship visualization feature is under development...</p>
               </div>
             </div>
           </div>
 
-          <!-- AI助手 -->
+          <!-- AI Assistant -->
           <div v-show="activeTab === 'assistant'" class="feature-view">
             <div class="feature-header">
               <div class="feature-title">
@@ -381,19 +381,169 @@
                   <line x1="9" y1="13" x2="12" y2="13"></line>
                 </svg>
                 <h3>AI Assistant</h3>
-                <span class="badge badge-secondary">Coming Soon</span>
+                <span class="badge badge-primary" v-if="chatMessages.length > 0">{{ chatMessages.length }} messages</span>
+              </div>
+              <div class="feature-controls" v-if="chatMessages.length > 0">
+                <button 
+                  @click="clearChat" 
+                  class="btn btn-secondary btn-sm"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                  <span>Clear</span>
+                </button>
               </div>
             </div>
-            <div class="feature-body">
-              <div class="empty-state">
+            <div class="feature-body chat-container-wrapper">
+              <!-- Empty State -->
+              <div v-if="!selectedPaper" class="empty-state">
                 <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.3;">
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                  <path d="M8 10h.01"></path>
-                  <path d="M12 10h.01"></path>
-                  <path d="M16 10h.01"></path>
+                  <circle cx="9" cy="10" r="1"></circle>
+                  <circle cx="15" cy="10" r="1"></circle>
+                  <path d="M9 14c1.5 1 3.5 1 5 0"></path>
                 </svg>
-                <h3>即将推出</h3>
-                <p>AI问答助手功能开发中...</p>
+                <h3 style="color: var(--text-primary); margin: 16px 0 8px;">Ready to Start</h3>
+                <p style="color: var(--text-secondary);">Please select a paper first, then you can ask the AI assistant any questions about it</p>
+              </div>
+
+              <!-- Chat Interface -->
+              <div v-else class="chat-wrapper">
+                <!-- Message List -->
+                <div ref="chatContainer" class="chat-messages">
+                  <!-- Welcome Message -->
+                  <div v-if="chatMessages.length === 0" class="welcome-message">
+                    <div class="welcome-icon">
+                      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        <circle cx="9" cy="10" r="1" fill="currentColor"></circle>
+                        <circle cx="15" cy="10" r="1" fill="currentColor"></circle>
+                        <path d="M9 14c1.5 1 3.5 1 5 0"></path>
+                      </svg>
+                    </div>
+                    <h4>Hello! I'm your AI Assistant</h4>
+                    <p>I can help you understand this paper. You can ask me:</p>
+                    <div class="example-questions">
+                      <button @click="currentQuestion = 'What is the main research content of this paper?'" class="example-question">
+                        📄 What is the main research content of this paper?
+                      </button>
+                      <button @click="currentQuestion = 'What are the innovations of this paper?'" class="example-question">
+                        💡 What are the innovations of this paper?
+                      </button>
+                      <button @click="currentQuestion = 'What research methods does this paper use?'" class="example-question">
+                        🔬 What research methods does this paper use?
+                      </button>
+                      <button @click="currentQuestion = 'What are the conclusions of this paper?'" class="example-question">
+                        ✅ What are the conclusions of this paper?
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Message Bubbles -->
+                  <div 
+                    v-for="(message, index) in chatMessages" 
+                    :key="index"
+                    :class="['message-bubble', message.role]"
+                  >
+                    <div class="message-avatar">
+                      <svg v-if="message.role === 'user'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                      </svg>
+                      <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                      </svg>
+                    </div>
+                    <div class="message-content-wrapper">
+                      <div class="message-header">
+                        <span class="message-role">{{ message.role === 'user' ? 'You' : 'AI Assistant' }}</span>
+                        <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+                      </div>
+                      <div :class="['message-content', { 'error-message': message.isError }]" v-html="message.content"></div>
+                      <!-- References -->
+                      <div v-if="message.references && message.references.length > 0" class="message-references">
+                        <div class="references-header">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                          </svg>
+                          <span>References ({{ message.references.length }})</span>
+                        </div>
+                        <div class="references-list">
+                          <div 
+                            v-for="(ref, refIndex) in message.references" 
+                            :key="refIndex"
+                            class="reference-item"
+                          >
+                            <div class="reference-badge">{{ refIndex + 1 }}</div>
+                            <div class="reference-info">
+                              <div class="reference-meta">
+                                <span class="reference-pages">Pages: {{ ref.page_range }}</span>
+                                <span class="reference-score">Relevance: {{ Math.round(ref.relevance_score * 100) }}%</span>
+                              </div>
+                              <div class="reference-content">{{ ref.content.substring(0, 150) }}...</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Typing Indicator -->
+                  <div v-if="isAsking" class="message-bubble assistant typing-indicator">
+                    <div class="message-avatar">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                      </svg>
+                    </div>
+                    <div class="message-content-wrapper">
+                      <div class="message-content">
+                        <div class="typing-dots">
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Input Box -->
+                <div class="chat-input-container">
+                  <div class="chat-input-wrapper">
+                    <textarea
+                      v-model="currentQuestion"
+                      @keydown.enter.exact.prevent="sendQuestion"
+                      @keydown.enter.shift.exact="currentQuestion += '\n'"
+                      placeholder="Type your question... (Shift+Enter for new line)"
+                      class="chat-input"
+                      rows="1"
+                      :disabled="isAsking"
+                    ></textarea>
+                    <button 
+                      @click="sendQuestion"
+                      :disabled="!currentQuestion.trim() || isAsking"
+                      class="send-button"
+                    >
+                      <svg v-if="!isAsking" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                      </svg>
+                      <div v-else class="send-spinner"></div>
+                    </button>
+                  </div>
+                  <div class="input-hint">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <path d="M12 16v-4M12 8h.01"></path>
+                    </svg>
+                    <span>Press Enter to send, Shift+Enter for new line</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -406,12 +556,33 @@
 
 <script>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import { listPapers, downloadPaper } from '../api/papers'
+import { listPapers, downloadPaper, paperQA } from '../api/papers'
 import { generateMindmap as generateMindmapAPI } from '../api/mindmap'
 import { generateAnalysis as generateAnalysisAPI } from '../api/analysis'
 import jsMind from 'jsmind'
 import 'jsmind/style/jsmind.css'
+import { marked } from 'marked'
+import katex from 'katex'
+import hljs from 'highlight.js'
+import 'highlight.js/styles/atom-one-dark.css'
+import 'katex/dist/katex.min.css'
 import { API_BASE_URL } from '../config'
+
+// Configure marked
+marked.setOptions({
+  highlight: function(code, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        return hljs.highlight(code, { language: lang }).value
+      } catch (err) {
+        console.error(err)
+      }
+    }
+    return hljs.highlightAuto(code).value
+  },
+  breaks: true,
+  gfm: true
+})
 
 export default {
   name: 'PaperReview',
@@ -483,6 +654,12 @@ export default {
     const analysisGenerated = ref(false)
     const analysisData = ref(null)
 
+    // AI 助手相关
+    const chatMessages = ref([])
+    const currentQuestion = ref('')
+    const isAsking = ref(false)
+    const chatContainer = ref(null)
+
     // 加载论文列表
     const loadPapers = async () => {
       loading.value = true
@@ -491,17 +668,17 @@ export default {
         papers.value = response.papers || []
       } catch (error) {
         console.error('Failed to load papers:', error)
-        alert('加载论文列表失败')
+        alert('Failed to load papers list')
       } finally {
         loading.value = false
       }
     }
 
-    // 选择论文
+    // Select paper
     const selectPaper = (paper) => {
       selectedPaper.value = paper
       showPaperList.value = false
-      // 使用view端点而不是download，这样浏览器会在线显示而不是下载
+      // Use view endpoint instead of download, so browser displays inline
       pdfUrl.value = `${API_BASE_URL}/api/papers/view/${paper.object_name}`
     }
 
@@ -513,8 +690,10 @@ export default {
       mindmapData.value = null
       analysisGenerated.value = false
       analysisData.value = null
+      chatMessages.value = []
+      currentQuestion.value = ''
       
-      // 清空思维导图
+      // Clear mindmap
       if (jsMindInstance) {
         jsMindInstance = null
       }
@@ -523,7 +702,7 @@ export default {
       }
     }
 
-    // 生成思维导图
+    // Generate mindmap
     const generateMindmap = async () => {
       if (!selectedPaper.value) return
       
@@ -537,24 +716,24 @@ export default {
         
         if (result.success) {
           if (!result.mindmap_data) {
-            throw new Error('后端返回的思维导图数据为空')
+            throw new Error('Mindmap data returned from backend is empty')
           }
           console.log('Received mindmap data:', result.mindmap_data)
           mindmapData.value = result.mindmap_data
           await renderMindmap(result.mindmap_data)
           mindmapGenerated.value = true
         } else {
-          throw new Error(result.message || '生成思维导图失败')
+          throw new Error(result.message || 'Failed to generate mindmap')
         }
       } catch (error) {
         console.error('Failed to generate mindmap:', error)
-        alert('生成思维导图失败：' + (error.response?.data?.detail || error.message))
+        alert('Failed to generate mindmap: ' + (error.response?.data?.detail || error.message))
       } finally {
         generatingMindmap.value = false
       }
     }
 
-    // 重新生成思维导图
+    // Regenerate mindmap
     const regenerateMindmap = async () => {
       mindmapGenerated.value = false
       mindmapData.value = null
@@ -565,7 +744,7 @@ export default {
       await generateMindmap()
     }
 
-    // 添加缩放功能（滚动条位置保持不变）
+    // Add zoom functionality (keeping scroll position)
     const addDragAndZoom = (container) => {
       let scale = 1
       
@@ -677,11 +856,11 @@ export default {
         console.log('jsMind rendered successfully with drag & zoom')
       } catch (error) {
         console.error('Failed to render jsMind:', error)
-        alert('渲染思维导图失败: ' + error.message)
+        alert('Failed to render mindmap: ' + error.message)
       }
     }
 
-    // 生成分析
+    // Generate analysis
     const generateAnalysis = async () => {
       if (!selectedPaper.value) return
       
@@ -694,23 +873,23 @@ export default {
         
         if (result.success) {
           if (!result.analysis) {
-            throw new Error('后端返回的分析数据为空')
+            throw new Error('Analysis data returned from backend is empty')
           }
           console.log('Received analysis data:', result.analysis)
           analysisData.value = result.analysis
           analysisGenerated.value = true
         } else {
-          throw new Error(result.message || '生成分析失败')
+          throw new Error(result.message || 'Failed to generate analysis')
         }
       } catch (error) {
         console.error('Failed to generate analysis:', error)
-        alert('生成分析失败：' + (error.response?.data?.detail || error.message))
+        alert('Failed to generate analysis: ' + (error.response?.data?.detail || error.message))
       } finally {
         generatingAnalysis.value = false
       }
     }
 
-    // 重新生成分析
+    // Regenerate analysis
     const regenerateAnalysis = async () => {
       analysisGenerated.value = false
       analysisData.value = null
@@ -736,6 +915,255 @@ export default {
         hour: '2-digit',
         minute: '2-digit'
       })
+    }
+
+    // AI Assistant - Send question with streaming
+    const sendQuestion = async () => {
+      if (!currentQuestion.value.trim() || !selectedPaper.value || isAsking.value) return
+      
+      const question = currentQuestion.value.trim()
+      currentQuestion.value = ''
+      
+      // Add user message
+      const userMessage = {
+        role: 'user',
+        content: question,
+        timestamp: new Date().toISOString()
+      }
+      chatMessages.value.push(userMessage)
+      
+      // Scroll to bottom
+      await nextTick()
+      scrollToBottom()
+      
+      isAsking.value = true
+      let assistantMessageIndex = -1
+      let fullResponse = ''
+      
+      try {
+        // Prepare chat history (only send role and content, without HTML)
+        const history = chatMessages.value.slice(0, -1).map(msg => ({
+          role: msg.role,
+          content: typeof msg.content === 'string' ? msg.content.replace(/<[^>]*>/g, '') : msg.content
+        }))
+        
+        // Call streaming API
+        const response = await fetch(`${API_BASE_URL}/api/papers/qa-stream`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            paper_id: selectedPaper.value.object_name,
+            question: question,
+            chat_history: history,
+            top_k: 10
+          })
+        })
+        
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status} ${response.statusText}`)
+        }
+        
+        // Read SSE stream
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let references = []
+        
+        while (true) {
+          const { done, value } = await reader.read()
+          
+          if (done) break
+          
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6)
+              
+              if (data === '[DONE]') continue
+              
+              try {
+                const parsed = JSON.parse(data)
+                
+                // Handle different event types
+                if (parsed.content) {
+                  fullResponse += parsed.content
+                  
+                  // Create placeholder message when first content arrives
+                  if (assistantMessageIndex === -1) {
+                    isAsking.value = false
+                    assistantMessageIndex = chatMessages.value.length
+                    chatMessages.value.push({
+                      role: 'assistant',
+                      content: '',
+                      references: [],
+                      timestamp: new Date().toISOString()
+                    })
+                  }
+                  
+                  // Render LaTeX first, then markdown
+                  const latexRendered = renderLatex(fullResponse)
+                  chatMessages.value[assistantMessageIndex].content = marked(latexRendered)
+                  
+                  await nextTick()
+                  scrollToBottom()
+                }
+                
+                // Handle references
+                if (parsed.references) {
+                  references = parsed.references
+                  if (assistantMessageIndex >= 0) {
+                    chatMessages.value[assistantMessageIndex].references = references
+                  }
+                }
+                
+                // Handle errors
+                if (parsed.error) {
+                  throw new Error(parsed.error)
+                }
+                
+                // Handle done signal
+                if (parsed.done || parsed.response_time_ms !== undefined) {
+                  console.log(`QA completed in ${parsed.response_time_ms}ms`)
+                }
+              } catch (e) {
+                if (e instanceof SyntaxError) {
+                  continue
+                }
+                throw e
+              }
+            } else if (line.startsWith('event: ')) {
+              // Handle event type (references, error, done, etc.)
+              const eventType = line.slice(7)
+              console.log('Event type:', eventType)
+            }
+          }
+        }
+        
+        isAsking.value = false
+        
+      } catch (error) {
+        console.error('Failed to get answer:', error)
+        
+        isAsking.value = false
+        
+        // Update placeholder message with error or create new one
+        if (assistantMessageIndex >= 0 && chatMessages.value[assistantMessageIndex]) {
+          chatMessages.value[assistantMessageIndex].content = `<div class="error-message">
+            <strong>Error:</strong> ${error.message || 'Failed to get answer'}
+            <br><br>
+            Please make sure the backend server is running.
+          </div>`
+          chatMessages.value[assistantMessageIndex].isError = true
+        } else {
+          chatMessages.value.push({
+            role: 'assistant',
+            content: `<div class="error-message">
+              <strong>Error:</strong> ${error.message || 'Failed to get answer'}
+              <br><br>
+              Please make sure the backend server is running.
+            </div>`,
+            isError: true,
+            timestamp: new Date().toISOString()
+          })
+        }
+        
+        await nextTick()
+        scrollToBottom()
+      }
+    }
+
+    // Scroll to chat bottom
+    const scrollToBottom = () => {
+      if (chatContainer.value) {
+        chatContainer.value.scrollTop = chatContainer.value.scrollHeight
+      }
+    }
+
+    // Clear chat history
+    const clearChat = () => {
+      chatMessages.value = []
+    }
+
+    // Format time
+    const formatTime = (timestamp) => {
+      const date = new Date(timestamp)
+      return date.toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    }
+
+    // Render LaTeX with KaTeX
+    const renderLatex = (text) => {
+      if (!text) return text
+      
+      const isValidLatex = (formula) => {
+        const trimmed = formula.trim()
+        if (!trimmed || trimmed.length < 2) return false
+        if (/^[0-9\s]+$/.test(trimmed)) return false
+        return /[\\_{}\^=+\-*/()]|\\[a-zA-Z]+/.test(trimmed)
+      }
+      
+      text = text.replace(/\\\[([\s\S]*?)\\\]/g, (match, content) => {
+        return isValidLatex(content) ? `$$${content}$$` : match
+      })
+      text = text.replace(/\\\((.*?)\\\)/g, (match, content) => {
+        return isValidLatex(content) ? `$${content}$` : match
+      })
+      text = text.replace(/^\s*\[([\s\S]*?)\]\s*$/gm, (match, content) => {
+        return isValidLatex(content) ? `$$${content}$$` : match
+      })
+      
+      try {
+        text = text.replace(/\$\$([\s\S]*?)\$\$/g, (match, formula) => {
+          const trimmed = formula.trim()
+          if (!isValidLatex(trimmed)) return match
+          try {
+            const html = katex.renderToString(trimmed, {
+              displayMode: true,
+              throwOnError: false,
+              trust: true,
+              strict: false
+            })
+            if (html && !html.includes('katex-error')) {
+              return `<div class="katex-block">${html}</div>`
+            }
+            return match
+          } catch (err) {
+            console.warn('KaTeX block error:', err.message)
+            return match
+          }
+        })
+        
+        text = text.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+          const trimmed = formula.trim()
+          if (!isValidLatex(trimmed)) return match
+          try {
+            const html = katex.renderToString(trimmed, {
+              displayMode: false,
+              throwOnError: false,
+              trust: true,
+              strict: false
+            })
+            if (html && !html.includes('katex-error')) {
+              return html
+            }
+            return match
+          } catch (err) {
+            console.warn('KaTeX inline error:', err.message)
+            return match
+          }
+        })
+      } catch (err) {
+        console.error('LaTeX rendering error:', err)
+      }
+      
+      return text
     }
 
     // 生命周期
@@ -764,14 +1192,21 @@ export default {
       generatingAnalysis,
       analysisGenerated,
       analysisData,
+      chatMessages,
+      currentQuestion,
+      isAsking,
+      chatContainer,
       selectPaper,
       resetSelection,
       generateMindmap,
       regenerateMindmap,
       generateAnalysis,
       regenerateAnalysis,
+      sendQuestion,
+      clearChat,
       formatSize,
-      formatDate
+      formatDate,
+      formatTime
     }
   }
 }
@@ -1578,6 +2013,589 @@ export default {
 }
 
 .analysis-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.6);
+}
+
+/* 聊天界面样式 */
+.chat-container-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.chat-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* 欢迎消息 */
+.welcome-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 20px;
+  gap: 16px;
+}
+
+.welcome-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-primary);
+  margin-bottom: 8px;
+}
+
+.welcome-message h4 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.welcome-message p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 16px 0;
+}
+
+.example-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 500px;
+}
+
+.example-question {
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: left;
+  font-size: 13px;
+}
+
+.example-question:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: var(--text-primary);
+  transform: translateX(4px);
+}
+
+/* 消息气泡 */
+.message-bubble {
+  display: flex;
+  gap: 12px;
+  animation: messageSlideIn 0.3s ease;
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-bubble.user {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.message-bubble.user .message-avatar {
+  background: linear-gradient(135deg, #6366F1, #8B5CF6);
+  border-color: transparent;
+  color: white;
+}
+
+.message-content-wrapper {
+  flex: 1;
+  min-width: 0;
+  max-width: 70%;
+}
+
+.message-bubble.user .message-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.message-bubble.user .message-header {
+  flex-direction: row-reverse;
+}
+
+.message-role {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message-time {
+  color: var(--text-tertiary);
+}
+
+.message-content {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+
+.message-bubble.user .message-content {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
+  border-color: rgba(99, 102, 241, 0.5);
+  white-space: pre-wrap;
+}
+
+.message-bubble.assistant .message-content {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.error-message {
+  background: rgba(255, 107, 157, 0.1) !important;
+  border-color: var(--accent-danger) !important;
+  color: var(--accent-danger) !important;
+}
+
+/* Markdown Styles */
+.message-content :deep(h1),
+.message-content :deep(h2),
+.message-content :deep(h3),
+.message-content :deep(h4) {
+  color: var(--text-primary);
+  margin: 16px 0 12px 0;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.message-content :deep(h1) { font-size: 20px; }
+.message-content :deep(h2) { font-size: 18px; }
+.message-content :deep(h3) { font-size: 16px; }
+.message-content :deep(h4) { font-size: 15px; }
+
+.message-content :deep(p) {
+  margin: 8px 0;
+  line-height: 1.7;
+}
+
+.message-content :deep(ul),
+.message-content :deep(ol) {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.message-content :deep(li) {
+  margin: 6px 0;
+  line-height: 1.6;
+}
+
+.message-content :deep(code) {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: #00ff88;
+}
+
+.message-content :deep(pre) {
+  background: #282c34;
+  border-radius: 8px;
+  padding: 16px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.message-content :deep(pre code) {
+  background: none;
+  padding: 0;
+  color: #abb2bf;
+  font-size: 13px;
+}
+
+.message-content :deep(blockquote) {
+  border-left: 3px solid var(--accent-primary);
+  padding-left: 16px;
+  margin: 16px 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.message-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+}
+
+.message-content :deep(th),
+.message-content :deep(td) {
+  padding: 10px;
+  border: 1px solid var(--border-primary);
+  text-align: left;
+}
+
+.message-content :deep(th) {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+}
+
+.message-content :deep(strong) {
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.message-content :deep(em) {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.message-content :deep(a) {
+  color: var(--accent-primary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-primary);
+  transition: all 0.2s;
+}
+
+.message-content :deep(a:hover) {
+  opacity: 0.8;
+}
+
+.message-content :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--border-primary);
+  margin: 16px 0;
+}
+
+/* KaTeX Math Rendering */
+.message-content :deep(.katex-block) {
+  margin: 0.5rem 0;
+  padding: 0.5rem 1rem;
+  background: rgba(102, 126, 234, 0.05);
+  border-left: 3px solid rgba(102, 126, 234, 0.5);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.message-content :deep(.katex) {
+  font-size: 1.05em;
+}
+
+.message-content :deep(.katex-display) {
+  margin: 0;
+  text-align: center;
+}
+
+.message-content :deep(.katex-html) {
+  color: var(--text-primary);
+}
+
+.message-content :deep(.katex-error) {
+  display: none;
+}
+
+.message-content :deep(.katex-mathml) {
+  display: none;
+}
+
+/* User message markdown styles */
+.message-bubble.user .message-content :deep(h1),
+.message-bubble.user .message-content :deep(h2),
+.message-bubble.user .message-content :deep(h3),
+.message-bubble.user .message-content :deep(h4),
+.message-bubble.user .message-content :deep(p),
+.message-bubble.user .message-content :deep(li),
+.message-bubble.user .message-content :deep(strong) {
+  color: white;
+}
+
+.message-bubble.user .message-content :deep(code) {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+/* 引用参考 */
+.message-references {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.references-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.references-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reference-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.reference-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.reference-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366F1, #8B5CF6);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.reference-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.reference-meta {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.reference-pages,
+.reference-score {
+  font-family: 'Courier New', monospace;
+}
+
+.reference-content {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* 正在输入指示器 */
+.typing-indicator {
+  animation: none;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  animation: typingBounce 1.4s infinite;
+}
+
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typingBounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+/* 输入框 */
+.chat-input-container {
+  padding: 16px 20px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chat-input-wrapper {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.chat-input-wrapper:focus-within {
+  border-color: var(--border-glow);
+  box-shadow: var(--glow-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.chat-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  max-height: 120px;
+  font-family: inherit;
+}
+
+.chat-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.chat-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.send-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366F1, #8B5CF6);
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.send-button:hover:not(:disabled) {
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.5);
+  transform: translateY(-2px);
+}
+
+.send-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.send-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.input-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.input-hint svg {
+  opacity: 0.7;
+}
+
+/* 滚动条样式 */
+.chat-messages::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.4);
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
+.chat-messages::-webkit-scrollbar-thumb:hover {
   background: rgba(99, 102, 241, 0.6);
 }
 
