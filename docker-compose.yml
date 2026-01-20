@@ -85,6 +85,28 @@ services:
     networks:
       - researchgo-network
 
+  mysql:
+    image: mysql:8.0
+    container_name: researchgo-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-researchgo}
+      MYSQL_USER: ${MYSQL_USER:-researchgo_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-researchgo123}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - researchgo-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword123}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
 networks:
   researchgo-network:
     driver: bridge
@@ -95,5 +117,7 @@ volumes:
   etcd_data:
     driver: local
   milvus_data:
+    driver: local
+  mysql_data:
     driver: local
 

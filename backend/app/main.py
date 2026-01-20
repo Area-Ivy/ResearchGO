@@ -6,8 +6,9 @@ import logging
 import time
 
 from app.api import chat_router, literature_router
-from app.api import papers, mindmap, analysis
+from app.api import papers, mindmap, analysis, auth, conversations
 from app.routers import milvus
+from app.database import init_db
 
 # Load environment variables
 load_dotenv()
@@ -60,6 +61,8 @@ async def log_requests(request: Request, call_next):
     return response
 
 # Include routers
+app.include_router(auth.router)
+app.include_router(conversations.router)
 app.include_router(chat_router)
 app.include_router(literature_router)
 app.include_router(papers.router)
@@ -75,7 +78,7 @@ async def root():
         "message": "ResearchGO API",
         "version": "1.0.0",
         "status": "running",
-        "features": ["chat", "literature_search", "paper_library", "mindmap", "analysis", "milvus"]
+        "features": ["auth", "chat", "literature_search", "paper_library", "mindmap", "analysis", "milvus"]
     }
 
 
@@ -97,6 +100,13 @@ async def startup_event():
     logger.info("   Methods: ALL (*)")
     logger.info("   Headers: ALL (*)")
     
+    # Initialize database
+    try:
+        init_db()
+        logger.info("✓ Database initialized successfully")
+    except Exception as e:
+        logger.error(f"⚠️  Failed to initialize database: {e}")
+    
     # Check for required environment variables
     if not os.getenv('OPENAI_API_KEY'):
         logger.warning("⚠️  OPENAI_API_KEY is not set!")
@@ -109,11 +119,16 @@ async def startup_event():
     contact_email = os.getenv('CONTACT_EMAIL', 'Not set')
     logger.info(f"📧 Contact email for OpenAlex: {contact_email}")
     
-    logger.info("✓ Features: Chat, Literature Search (OpenAlex), Paper Library (MinIO), Mindmap, Milvus")
+    logger.info("✓ Features: Auth, Chat, Literature Search (OpenAlex), Paper Library (MinIO), Mindmap, Milvus")
     
     # Check MinIO configuration
     minio_endpoint = os.getenv('MINIO_ENDPOINT', 'Not set')
     logger.info(f"📦 MinIO endpoint: {minio_endpoint}")
+    
+    # Check MySQL configuration
+    mysql_host = os.getenv('MYSQL_HOST', 'localhost')
+    mysql_database = os.getenv('MYSQL_DATABASE', 'researchgo')
+    logger.info(f"🗄️  MySQL: {mysql_host}/{mysql_database}")
     
     logger.info("=" * 60)
 

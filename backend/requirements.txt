@@ -11,4 +11,12 @@ pdfplumber==0.11.0
 pypdf2==3.0.1
 pymilvus>=2.6.6
 loguru>=0.7.3
+# 数据库和认证相关
+sqlalchemy==2.0.25
+pymysql==1.1.0
+cryptography==42.0.0
+passlib==1.7.4
+bcrypt==4.1.2
+python-jose[cryptography]==3.3.0
+email-validator==2.1.0
 

@@ -1,6 +1,6 @@
 <template>
   <div id="app">
-      <button class="mobile-menu-btn" @click="toggleSidebar" v-if="!sidebarOpen">
+      <button class="mobile-menu-btn" @click="toggleSidebar" v-if="!sidebarOpen && showSidebar">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="3" y1="12" x2="21" y2="12"></line>
           <line x1="3" y1="6" x2="21" y2="6"></line>
@@ -9,7 +9,7 @@
       </button>
       
       <div class="app-layout">
-      <aside class="sidebar" :class="{ 'sidebar-open': sidebarOpen, 'sidebar-collapsed': sidebarCollapsed }">
+      <aside v-if="showSidebar" class="sidebar" :class="{ 'sidebar-open': sidebarOpen, 'sidebar-collapsed': sidebarCollapsed }">
         <div class="sidebar-header">
           <div class="logo">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -104,8 +104,8 @@
               </svg>
             </div>
             <div class="user-details" v-if="!sidebarCollapsed">
-              <div class="user-name">演示用户</div>
-              <div class="user-email">demo@example.com</div>
+              <div class="user-name">{{ currentUser?.username || '用户' }}</div>
+              <div class="user-email">{{ currentUser?.email || '' }}</div>
             </div>
           </div>
           <div v-if="showUserMenu && !sidebarCollapsed" class="user-menu">
@@ -121,11 +121,13 @@
         </div>
       </aside>
       
-      <div class="sidebar-overlay" :class="{ 'overlay-open': sidebarOpen }" @click="toggleSidebar"></div>
+      <div v-if="showSidebar" class="sidebar-overlay" :class="{ 'overlay-open': sidebarOpen }" @click="toggleSidebar"></div>
       
       <main class="main" :class="{ 
-        'main-with-sidebar': sidebarOpen, 
-        'main-collapsed': sidebarCollapsed
+        'main-with-sidebar': sidebarOpen && showSidebar, 
+        'main-collapsed': sidebarCollapsed && showSidebar,
+        'main-no-sidebar': !showSidebar,
+        'main-chat': route.path === '/chat'
       }">
         <router-view v-slot="{ Component }">
           <keep-alive :include="['Dashboard', 'Chat', 'Literature', 'PaperLibrary', 'PaperReview']">
@@ -138,14 +140,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { logout, getStoredUser } from './api/auth'
 
 const router = useRouter()
+const route = useRoute()
 
 const sidebarOpen = ref(false)
 const sidebarCollapsed = ref(false)
 const showUserMenu = ref(false)
+const currentUser = ref(null)
+
+// 计算是否显示侧边栏（登录页面不显示）
+const showSidebar = computed(() => {
+  return route.path !== '/login'
+})
 
 const toggleSidebar = () => {
   sidebarOpen.value = !sidebarOpen.value
@@ -170,9 +180,17 @@ const handleResize = () => {
   }
 }
 
-const handleLogout = () => {
+const handleLogout = async () => {
   showUserMenu.value = false
-  router.push('/')
+  try {
+    await logout()
+  } catch (error) {
+    console.error('登出失败:', error)
+    // 即使失败也清除本地存储
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    router.push('/login')
+  }
 }
 
 // 点击外部关闭用户菜单
@@ -182,12 +200,21 @@ const handleClickOutside = (event) => {
   }
 }
 
+// 加载用户信息
+const loadUserInfo = () => {
+  const user = getStoredUser()
+  if (user) {
+    currentUser.value = user
+  }
+}
+
 onMounted(() => {
   if (window.innerWidth > 1024) {
     sidebarOpen.value = true
   }
   window.addEventListener('resize', handleResize)
   document.addEventListener('click', handleClickOutside)
+  loadUserInfo()
 })
 
 onUnmounted(() => {
@@ -536,6 +563,28 @@ onUnmounted(() => {
   max-width: calc(100% - 220px);
   padding: 32px 24px;
   transition: margin-left 0.2s ease, max-width 0.2s ease;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+}
+
+/* Scrollbar for main */
+.main::-webkit-scrollbar {
+  width: 8px;
+}
+
+.main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.main::-webkit-scrollbar-thumb {
+  background: var(--accent-primary);
+  border-radius: 4px;
+}
+
+.main::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-secondary);
 }
 
 .main-with-sidebar {
@@ -545,6 +594,18 @@ onUnmounted(() => {
 .main-collapsed {
   margin-left: 64px;
   max-width: calc(100% - 64px);
+}
+
+.main-no-sidebar {
+  margin-left: 0;
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+
+.main-chat {
+  padding: 0;
+  overflow: hidden;
 }
 
 @media (max-width: 1024px) {
@@ -577,6 +638,7 @@ onUnmounted(() => {
     margin-left: 0;
     max-width: 100%;
     padding: 32px 20px;
+    height: 100vh;
   }
   
   .main-with-sidebar {
