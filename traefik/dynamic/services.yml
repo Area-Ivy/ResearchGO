@@ -1,0 +1,129 @@
+# Traefik 动态配置 - 微服务路由
+# ResearchGO API Gateway
+
+http:
+  # ============ 路由规则 ============
+  routers:
+    # 认证服务
+    auth-router:
+      rule: "PathPrefix(`/api/auth`)"
+      service: auth-service
+      entryPoints:
+        - web
+
+    # 对话服务
+    conversation-router:
+      rule: "PathPrefix(`/api/conversations`)"
+      service: conversation-service
+      entryPoints:
+        - web
+
+    # 论文存储服务
+    paper-router:
+      rule: "PathPrefix(`/api/papers`)"
+      service: paper-service
+      entryPoints:
+        - web
+
+    # 向量搜索服务
+    vector-router:
+      rule: "PathPrefix(`/api/vector`)"
+      service: vector-service
+      entryPoints:
+        - web
+
+    # 文献检索服务
+    literature-router:
+      rule: "PathPrefix(`/api/literature`)"
+      service: literature-service
+      entryPoints:
+        - web
+
+    # AI 聊天服务
+    chat-router:
+      rule: "PathPrefix(`/api/chat`)"
+      service: chat-service
+      entryPoints:
+        - web
+
+    # 思维导图服务
+    mindmap-router:
+      rule: "PathPrefix(`/api/mindmap`)"
+      service: mindmap-service
+      entryPoints:
+        - web
+
+    # 分析服务
+    analysis-router:
+      rule: "PathPrefix(`/api/analysis`)"
+      service: analysis-service
+      entryPoints:
+        - web
+
+  # ============ 服务定义 ============
+  services:
+    auth-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8001"
+
+    conversation-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8002"
+
+    paper-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8003"
+
+    vector-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8004"
+
+    literature-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8005"
+
+    chat-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8006"
+
+    mindmap-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8007"
+
+    analysis-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8008"
+
+  # ============ 中间件 ============
+  middlewares:
+    # CORS 配置
+    cors-headers:
+      headers:
+        accessControlAllowMethods:
+          - "GET"
+          - "POST"
+          - "PUT"
+          - "DELETE"
+          - "OPTIONS"
+        accessControlAllowHeaders:
+          - "Content-Type"
+          - "Authorization"
+        accessControlAllowOriginList:
+          - "*"
+        accessControlMaxAge: 3600
+        addVaryHeader: true
+
+    # 限流配置（可选）
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50
+

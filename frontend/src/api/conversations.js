@@ -1,7 +1,40 @@
 /**
  * 对话管理相关API
  */
-import authAxios from './auth'
+import axios from 'axios'
+import { CONVERSATION_SERVICE_URL } from '../config'
+
+// 创建对话服务专用的axios实例
+const conversationClient = axios.create({
+  baseURL: CONVERSATION_SERVICE_URL
+})
+
+// 请求拦截器：自动添加token
+conversationClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
+// 响应拦截器：处理401错误
+conversationClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
 
 /**
  * 创建新对话会话
@@ -9,7 +42,7 @@ import authAxios from './auth'
  * @returns {Promise<Object>} 对话会话信息
  */
 export const createConversation = async (title) => {
-  const response = await authAxios.post('/api/conversations', { title })
+  const response = await conversationClient.post('/api/conversations', { title })
   return response.data
 }
 
@@ -20,7 +53,7 @@ export const createConversation = async (title) => {
  * @returns {Promise<Object>} 对话会话列表
  */
 export const getConversations = async (skip = 0, limit = 50) => {
-  const response = await authAxios.get('/api/conversations', {
+  const response = await conversationClient.get('/api/conversations', {
     params: { skip, limit }
   })
   return response.data
@@ -32,7 +65,7 @@ export const getConversations = async (skip = 0, limit = 50) => {
  * @returns {Promise<Object>} 对话会话详情（包含消息）
  */
 export const getConversation = async (conversationId) => {
-  const response = await authAxios.get(`/api/conversations/${conversationId}`)
+  const response = await conversationClient.get(`/api/conversations/${conversationId}`)
   return response.data
 }
 
@@ -43,7 +76,7 @@ export const getConversation = async (conversationId) => {
  * @returns {Promise<Object>} 更新后的对话会话信息
  */
 export const updateConversation = async (conversationId, title) => {
-  const response = await authAxios.put(`/api/conversations/${conversationId}`, { title })
+  const response = await conversationClient.put(`/api/conversations/${conversationId}`, { title })
   return response.data
 }
 
@@ -53,7 +86,7 @@ export const updateConversation = async (conversationId, title) => {
  * @returns {Promise<void>}
  */
 export const deleteConversation = async (conversationId) => {
-  await authAxios.delete(`/api/conversations/${conversationId}`)
+  await conversationClient.delete(`/api/conversations/${conversationId}`)
 }
 
 /**
@@ -64,7 +97,7 @@ export const deleteConversation = async (conversationId) => {
  * @returns {Promise<Object>} 创建的消息信息
  */
 export const addMessage = async (conversationId, role, content) => {
-  const response = await authAxios.post(`/api/conversations/${conversationId}/messages`, {
+  const response = await conversationClient.post(`/api/conversations/${conversationId}/messages`, {
     role,
     content
   })
@@ -77,7 +110,7 @@ export const addMessage = async (conversationId, role, content) => {
  * @returns {Promise<Array>} 消息列表
  */
 export const getMessages = async (conversationId) => {
-  const response = await authAxios.get(`/api/conversations/${conversationId}/messages`)
+  const response = await conversationClient.get(`/api/conversations/${conversationId}/messages`)
   return response.data
 }
 

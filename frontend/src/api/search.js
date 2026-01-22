@@ -1,8 +1,40 @@
 /**
- * 论文搜索 API
+ * 论文搜索 API - 调用向量搜索服务
  */
 import axios from 'axios'
-import { API_BASE_URL } from '../config'
+import { VECTOR_SEARCH_SERVICE_URL } from '../config'
+
+// 创建向量搜索服务专用的axios实例
+const vectorSearchClient = axios.create({
+  baseURL: VECTOR_SEARCH_SERVICE_URL
+})
+
+// 请求拦截器：自动添加token
+vectorSearchClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
+// 响应拦截器：处理401错误
+vectorSearchClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
 
 /**
  * 语义搜索论文
@@ -13,7 +45,7 @@ import { API_BASE_URL } from '../config'
  */
 export async function semanticSearch(query, topK = 10, uploadedAfter = null) {
   try {
-    const response = await axios.post(`${API_BASE_URL}/api/papers/search`, {
+    const response = await vectorSearchClient.post('/api/vector/search', {
       query,
       top_k: topK,
       uploaded_after: uploadedAfter

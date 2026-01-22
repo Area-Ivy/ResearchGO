@@ -678,8 +678,9 @@ export default {
     const selectPaper = (paper) => {
       selectedPaper.value = paper
       showPaperList.value = false
-      // Use view endpoint instead of download, so browser displays inline
-      pdfUrl.value = `${API_BASE_URL}/api/papers/view/${paper.object_name}`
+      // Use paper storage service view endpoint
+      const token = localStorage.getItem('token')
+      pdfUrl.value = `http://localhost:8003/api/papers/view/${paper.object_name}?token=${token}`
     }
 
     // 重置选择
@@ -947,11 +948,13 @@ export default {
           content: typeof msg.content === 'string' ? msg.content.replace(/<[^>]*>/g, '') : msg.content
         }))
         
-        // Call streaming API
-        const response = await fetch(`${API_BASE_URL}/api/papers/qa-stream`, {
+        // Call vector search service streaming API
+        const token = localStorage.getItem('token')
+        const response = await fetch('http://localhost:8004/api/vector/qa-stream', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
             paper_id: selectedPaper.value.object_name,

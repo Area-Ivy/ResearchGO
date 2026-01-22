@@ -5,10 +5,15 @@ import os
 import logging
 import time
 
-from app.api import chat_router, literature_router
-from app.api import papers, mindmap, analysis, auth, conversations
+from app.api import papers, conversations
+# 注意：chat_router 已迁移到聊天服务 (localhost:8006)
+# 注意：literature_router 已迁移到文献检索服务 (localhost:8005)
+# 注意：mindmap 已迁移到思维导图服务 (localhost:8007)
+# 注意：analysis 已迁移到分析服务 (localhost:8008)
 from app.routers import milvus
 from app.database import init_db
+
+# 注意：认证功能已迁移到认证服务 (localhost:8001)
 
 # Load environment variables
 load_dotenv()
@@ -61,14 +66,14 @@ async def log_requests(request: Request, call_next):
     return response
 
 # Include routers
-app.include_router(auth.router)
-app.include_router(conversations.router)
-app.include_router(chat_router)
-app.include_router(literature_router)
-app.include_router(papers.router)
-app.include_router(mindmap.router)
-app.include_router(analysis.router)
-app.include_router(milvus.router)
+# app.include_router(auth.router)  # 已迁移到认证服务 (localhost:8001)
+# app.include_router(conversations.router)  # 已迁移到对话服务 (localhost:8002)
+# app.include_router(papers.router)  # 已迁移到论文存储服务 (localhost:8003)
+# app.include_router(milvus.router)  # 已迁移到向量搜索服务 (localhost:8004)
+# app.include_router(literature_router)  # 已迁移到文献检索服务 (localhost:8005)
+# app.include_router(chat_router)  # 已迁移到聊天服务 (localhost:8006)
+# app.include_router(mindmap.router)  # 已迁移到思维导图服务 (localhost:8007)
+# app.include_router(analysis.router)  # 已迁移到分析服务 (localhost:8008)
 
 
 @app.get("/")
@@ -78,7 +83,16 @@ async def root():
         "message": "ResearchGO API",
         "version": "1.0.0",
         "status": "running",
-        "features": ["auth", "chat", "literature_search", "paper_library", "mindmap", "analysis", "milvus"]
+        "features": [],
+        "note": "所有功能已迁移到独立微服务",
+        "auth_service": "http://localhost:8001",
+        "conversation_service": "http://localhost:8002",
+        "paper_storage_service": "http://localhost:8003",
+        "vector_search_service": "http://localhost:8004",
+        "literature_search_service": "http://localhost:8005",
+        "chat_service": "http://localhost:8006",
+        "mindmap_service": "http://localhost:8007",
+        "analysis_service": "http://localhost:8008"
     }
 
 
@@ -119,7 +133,15 @@ async def startup_event():
     contact_email = os.getenv('CONTACT_EMAIL', 'Not set')
     logger.info(f"📧 Contact email for OpenAlex: {contact_email}")
     
-    logger.info("✓ Features: Auth, Chat, Literature Search (OpenAlex), Paper Library (MinIO), Mindmap, Milvus")
+    logger.info("✓ 所有功能已迁移到独立微服务")
+    logger.info("🔐 Auth Service: http://localhost:8001 (独立认证服务)")
+    logger.info("💬 Conversation Service: http://localhost:8002 (独立对话服务)")
+    logger.info("📄 Paper Storage Service: http://localhost:8003 (独立论文存储服务)")
+    logger.info("🔍 Vector Search Service: http://localhost:8004 (独立向量搜索服务)")
+    logger.info("📚 Literature Search Service: http://localhost:8005 (独立文献检索服务)")
+    logger.info("🤖 Chat Service: http://localhost:8006 (独立聊天服务)")
+    logger.info("🧠 Mindmap Service: http://localhost:8007 (独立思维导图服务)")
+    logger.info("📊 Analysis Service: http://localhost:8008 (独立分析服务)")
     
     # Check MinIO configuration
     minio_endpoint = os.getenv('MINIO_ENDPOINT', 'Not set')

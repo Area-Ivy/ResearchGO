@@ -2,13 +2,13 @@
  * 认证相关API
  */
 import axios from 'axios'
-import { API_BASE_URL } from '../config'
+import { AUTH_SERVICE_URL } from '../config'
 
 /**
- * 创建带认证的axios实例
+ * 创建带认证的axios实例（指向认证服务）
  */
 const authAxios = axios.create({
-  baseURL: API_BASE_URL
+  baseURL: AUTH_SERVICE_URL
 })
 
 // 请求拦截器：自动添加token
@@ -47,7 +47,7 @@ authAxios.interceptors.response.use(
  * @returns {Promise<Object>} 包含token和用户信息
  */
 export const login = async (credentials) => {
-  const response = await axios.post(`${API_BASE_URL}/api/auth/login`, credentials)
+  const response = await axios.post(`${AUTH_SERVICE_URL}/api/auth/login`, credentials)
   return response.data
 }
 
@@ -60,7 +60,7 @@ export const login = async (credentials) => {
  * @returns {Promise<Object>} 包含token和用户信息
  */
 export const register = async (userData) => {
-  const response = await axios.post(`${API_BASE_URL}/api/auth/register`, userData)
+  const response = await axios.post(`${AUTH_SERVICE_URL}/api/auth/register`, userData)
   return response.data
 }
 

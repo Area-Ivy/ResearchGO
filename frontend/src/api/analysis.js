@@ -3,7 +3,26 @@
  * 论文分析相关的API调用
  */
 import axios from 'axios'
-import { API_BASE_URL } from '../config'
+import { ANALYSIS_SERVICE_URL } from '../config'
+
+// 创建分析服务专用的 axios 实例
+const analysisClient = axios.create({
+  baseURL: ANALYSIS_SERVICE_URL
+})
+
+// 请求拦截器：自动添加 token
+analysisClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
 
 /**
  * 生成论文分析
@@ -13,7 +32,7 @@ import { API_BASE_URL } from '../config'
  */
 export async function generateAnalysis(objectName, language = 'zh') {
   try {
-    const response = await axios.post(`${API_BASE_URL}/api/analysis/generate`, {
+    const response = await analysisClient.post('/api/analysis/generate', {
       object_name: objectName,
       language: language
     })
@@ -30,7 +49,7 @@ export async function generateAnalysis(objectName, language = 'zh') {
  */
 export async function healthCheck() {
   try {
-    const response = await axios.get(`${API_BASE_URL}/api/analysis/health`)
+    const response = await analysisClient.get('/api/analysis/health')
     return response.data
   } catch (error) {
     console.error('Error checking analysis service health:', error)

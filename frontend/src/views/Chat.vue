@@ -329,6 +329,20 @@ const loadConversations = async () => {
 // 创建新对话
 const createNewChat = async () => {
   try {
+    // 如果正在生成内容，先保存当前对话的最后一条AI消息
+    if (isLoading.value && currentConversation.value && messages.value.length > 0) {
+      const lastMessage = messages.value[messages.value.length - 1]
+      if (lastMessage.role === 'assistant' && lastMessage.content) {
+        // 提取纯文本内容（去除HTML标签）
+        const plainContent = lastMessage.content.replace(/<[^>]*>/g, '')
+        if (plainContent.trim()) {
+          await saveMessage('assistant', plainContent)
+        }
+      }
+      // 停止加载状态
+      isLoading.value = false
+    }
+    
     const conv = await createConversation('新对话')
     currentConversation.value = conv
     messages.value = []
@@ -349,6 +363,20 @@ const createNewChat = async () => {
 // 切换对话
 const switchConversation = async (conversationId) => {
   try {
+    // 如果正在生成内容，先保存当前对话的最后一条AI消息
+    if (isLoading.value && currentConversation.value && messages.value.length > 0) {
+      const lastMessage = messages.value[messages.value.length - 1]
+      if (lastMessage.role === 'assistant' && lastMessage.content) {
+        // 提取纯文本内容（去除HTML标签）
+        const plainContent = lastMessage.content.replace(/<[^>]*>/g, '')
+        if (plainContent.trim()) {
+          await saveMessage('assistant', plainContent)
+        }
+      }
+      // 停止加载状态
+      isLoading.value = false
+    }
+    
     const conv = await getConversation(conversationId)
     currentConversation.value = conv
     

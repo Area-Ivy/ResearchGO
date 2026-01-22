@@ -18,7 +18,8 @@ from app.schemas.conversation import (
     MessageCreate,
     MessageResponse
 )
-from app.utils.auth import get_current_active_user
+# 使用认证服务客户端
+from app.utils.auth_client import get_current_active_user_from_auth_service
 
 router = APIRouter(prefix="/api/conversations", tags=["对话管理"])
 
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/api/conversations", tags=["对话管理"])
 @router.post("", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     conversation_data: ConversationCreate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user_from_auth_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -41,7 +42,7 @@ async def create_conversation(
         ConversationResponse: 创建的对话会话信息
     """
     conversation = Conversation(
-        user_id=current_user.id,
+        user_id=current_user["id"],
         title=conversation_data.title
     )
     
@@ -56,7 +57,7 @@ async def create_conversation(
 async def get_conversations(
     skip: int = 0,
     limit: int = 50,
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user_from_auth_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -73,13 +74,13 @@ async def get_conversations(
     """
     # 查询总数
     total = db.query(Conversation).filter(
-        Conversation.user_id == current_user.id,
+        Conversation.user_id == current_user["id"],
         Conversation.is_deleted == False
     ).count()
     
     # 查询对话列表（按更新时间倒序）
     conversations = db.query(Conversation).filter(
-        Conversation.user_id == current_user.id,
+        Conversation.user_id == current_user["id"],
         Conversation.is_deleted == False
     ).order_by(desc(Conversation.updated_at)).offset(skip).limit(limit).all()
     
@@ -109,7 +110,7 @@ async def get_conversations(
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
 async def get_conversation(
     conversation_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user_from_auth_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -125,7 +126,7 @@ async def get_conversation(
     """
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
-        Conversation.user_id == current_user.id,
+        Conversation.user_id == current_user["id"],
         Conversation.is_deleted == False
     ).first()
     
@@ -154,7 +155,7 @@ async def get_conversation(
 async def update_conversation(
     conversation_id: int,
     conversation_update: ConversationUpdate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user_from_auth_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -171,7 +172,7 @@ async def update_conversation(
     """
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
-        Conversation.user_id == current_user.id,
+        Conversation.user_id == current_user["id"],
         Conversation.is_deleted == False
     ).first()
     
@@ -193,7 +194,7 @@ async def update_conversation(
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation(
     conversation_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user_from_auth_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -206,7 +207,7 @@ async def delete_conversation(
     """
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
-        Conversation.user_id == current_user.id,
+        Conversation.user_id == current_user["id"],
         Conversation.is_deleted == False
     ).first()
     
@@ -227,7 +228,7 @@ async def delete_conversation(
 async def add_message(
     conversation_id: int,
     message_data: MessageCreate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user_from_auth_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -245,7 +246,7 @@ async def add_message(
     # 验证对话会话是否存在且属于当前用户
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
-        Conversation.user_id == current_user.id,
+        Conversation.user_id == current_user["id"],
         Conversation.is_deleted == False
     ).first()
     
@@ -276,7 +277,7 @@ async def add_message(
 @router.get("/{conversation_id}/messages", response_model=List[MessageResponse])
 async def get_messages(
     conversation_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: dict = Depends(get_current_active_user_from_auth_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -293,7 +294,7 @@ async def get_messages(
     # 验证对话会话是否存在且属于当前用户
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
-        Conversation.user_id == current_user.id,
+        Conversation.user_id == current_user["id"],
         Conversation.is_deleted == False
     ).first()
     

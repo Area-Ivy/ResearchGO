@@ -3,7 +3,39 @@
  * 文献管理相关的 API 调用
  */
 import axios from 'axios'
-import { API_BASE_URL } from '../config'
+import { PAPER_STORAGE_SERVICE_URL, VECTOR_SEARCH_SERVICE_URL } from '../config'
+
+// 创建论文服务专用的axios实例
+const paperClient = axios.create({
+  baseURL: PAPER_STORAGE_SERVICE_URL
+})
+
+// 请求拦截器：自动添加token
+paperClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
+// 响应拦截器：处理401错误
+paperClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
 
 /**
  * 上传论文文件
@@ -14,7 +46,7 @@ export async function uploadPaper(file) {
   const formData = new FormData()
   formData.append('file', file)
   
-  const response = await axios.post(`${API_BASE_URL}/api/papers/upload`, formData, {
+  const response = await paperClient.post('/api/papers/upload', formData, {
     headers: {
       'Content-Type': 'multipart/form-data'
     }
@@ -28,7 +60,7 @@ export async function uploadPaper(file) {
  * @returns {Promise} 论文列表
  */
 export async function listPapers() {
-  const response = await axios.get(`${API_BASE_URL}/api/papers/list`)
+  const response = await paperClient.get('/api/papers/list')
   return response.data
 }
 
@@ -38,8 +70,8 @@ export async function listPapers() {
  * @param {string} originalName - 原始文件名（用于保存）
  */
 export async function downloadPaper(objectName, originalName) {
-  const response = await axios.get(
-    `${API_BASE_URL}/api/papers/download/${objectName}`,
+  const response = await paperClient.get(
+    `/api/papers/download/${objectName}`,
     { responseType: 'blob' }
   )
   
@@ -60,7 +92,7 @@ export async function downloadPaper(objectName, originalName) {
  * @returns {Promise} 删除结果
  */
 export async function deletePaper(objectName) {
-  const response = await axios.delete(`${API_BASE_URL}/api/papers/delete/${objectName}`)
+  const response = await paperClient.delete(`/api/papers/delete/${objectName}`)
   return response.data
 }
 
@@ -69,12 +101,12 @@ export async function deletePaper(objectName) {
  * @returns {Promise} 健康状态
  */
 export async function checkHealth() {
-  const response = await axios.get(`${API_BASE_URL}/api/papers/health`)
+  const response = await paperClient.get('/api/papers/health')
   return response.data
 }
 
 /**
- * 论文问答 - AI 助手
+ * 论文问答 - AI 助手（调用向量搜索服务）
  * @param {string} paperId - 论文ID
  * @param {string} question - 用户问题
  * @param {Array} chatHistory - 聊天历史 [{role: 'user'|'assistant', content: '...'}]
@@ -82,12 +114,22 @@ export async function checkHealth() {
  * @returns {Promise} 问答结果
  */
 export async function paperQA(paperId, question, chatHistory = [], topK = 10) {
-  const response = await axios.post(`${API_BASE_URL}/api/papers/qa`, {
-    paper_id: paperId,
-    question: question,
-    chat_history: chatHistory,
-    top_k: topK
-  })
+  const token = localStorage.getItem('token')
+  
+  const response = await axios.post(
+    `${VECTOR_SEARCH_SERVICE_URL}/api/vector/qa`,
+    {
+      paper_id: paperId,
+      question: question,
+      chat_history: chatHistory,
+      top_k: topK
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    }
+  )
   return response.data
 }
 

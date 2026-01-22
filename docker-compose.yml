@@ -1,6 +1,22 @@
 version: '3.8'
 
 services:
+  # API 网关 - Traefik
+  traefik:
+    image: traefik:v3.0
+    container_name: researchgo-traefik
+    restart: unless-stopped
+    ports:
+      - "8080:8080"    # API 网关入口
+      - "8081:8081"    # Traefik Dashboard
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - researchgo-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # 允许访问宿主机服务
+
   minio:
     image: minio/minio:latest
     container_name: researchgo-minio
@@ -107,6 +123,42 @@ services:
       timeout: 10s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: researchgo-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"    # AMQP 端口
+      - "15672:15672"  # 管理界面端口
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-admin123}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - researchgo-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: researchgo-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - researchgo-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
 networks:
   researchgo-network:
     driver: bridge
@@ -119,5 +171,9 @@ volumes:
   milvus_data:
     driver: local
   mysql_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  redis_data:
     driver: local
 

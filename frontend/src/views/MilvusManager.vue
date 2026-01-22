@@ -378,9 +378,9 @@ export default {
   methods: {
     async checkConnection() {
       try {
-        const response = await fetch('http://localhost:8000/api/milvus/status')
+        const response = await fetch('http://localhost:8004/api/vector/stats')
         const data = await response.json()
-        this.isConnected = data.connected
+        this.isConnected = data.success
       } catch (error) {
         console.error('Failed to check connection:', error)
         this.isConnected = false
@@ -389,9 +389,10 @@ export default {
     async loadCollections() {
       this.isLoading = true
       try {
-        const response = await fetch('http://localhost:8000/api/milvus/collections')
+        const response = await fetch('http://localhost:8004/api/vector/stats')
         const data = await response.json()
-        this.collections = data.collections || []
+        // 向量搜索服务只返回统计信息，不提供完整的集合管理功能
+        this.collections = data.stats ? [data.stats] : []
       } catch (error) {
         console.error('Failed to load collections:', error)
       } finally {

@@ -3,7 +3,26 @@
  * 思维导图相关的API调用
  */
 import axios from 'axios'
-import { API_BASE_URL } from '../config'
+import { MINDMAP_SERVICE_URL } from '../config'
+
+// 创建思维导图服务专用的 axios 实例
+const mindmapClient = axios.create({
+  baseURL: MINDMAP_SERVICE_URL
+})
+
+// 请求拦截器：自动添加 token
+mindmapClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
 
 /**
  * 生成思维导图
@@ -14,7 +33,7 @@ import { API_BASE_URL } from '../config'
  */
 export async function generateMindmap(objectName, maxDepth = 3, language = 'zh') {
   try {
-    const response = await axios.post(`${API_BASE_URL}/api/mindmap/generate`, {
+    const response = await mindmapClient.post('/api/mindmap/generate', {
       object_name: objectName,
       max_depth: maxDepth,
       language: language
@@ -32,7 +51,7 @@ export async function generateMindmap(objectName, maxDepth = 3, language = 'zh')
  */
 export async function healthCheck() {
   try {
-    const response = await axios.get(`${API_BASE_URL}/api/mindmap/health`)
+    const response = await mindmapClient.get('/api/mindmap/health')
     return response.data
   } catch (error) {
     console.error('Error checking mindmap service health:', error)

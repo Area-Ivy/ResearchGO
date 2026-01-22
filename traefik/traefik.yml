@@ -1,0 +1,33 @@
+# Traefik 静态配置
+# API 网关 - ResearchGO
+
+# API 和 Dashboard
+api:
+  dashboard: true
+  insecure: true  # 开发环境，生产环境应使用 HTTPS
+
+# 入口点配置
+entryPoints:
+  # API 网关主入口
+  web:
+    address: ":8080"
+  # Dashboard 入口
+  dashboard:
+    address: ":8081"
+
+# 提供者配置 - 使用文件配置路由
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true  # 自动监听配置变化
+
+# 日志配置
+log:
+  level: INFO
+  format: common
+
+# 访问日志
+accessLog:
+  format: common
+  filePath: ""  # 输出到 stdout
+
