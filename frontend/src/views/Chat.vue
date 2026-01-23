@@ -312,6 +312,121 @@ const renderLatex = (text) => {
   return text
 }
 
+// 渲染论文卡片
+const renderPapersCards = (papersData) => {
+  const { query, total, papers } = papersData
+  
+  if (!papers || papers.length === 0) {
+    return `<div class="papers-empty">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+      </svg>
+      <p>未找到相关论文</p>
+    </div>`
+  }
+  
+  // 格式化引用数
+  const formatCitations = (num) => {
+    if (num >= 10000) return (num / 1000).toFixed(1) + 'K'
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
+    return num
+  }
+  
+  let html = `<div class="papers-container">`
+  html += `<div class="papers-header">
+    <div class="papers-header-left">
+      <div class="papers-icon-wrapper">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+      </div>
+      <div class="papers-header-text">
+        <span class="papers-count">${total || papers.length}</span>
+        <span class="papers-label">篇相关论文</span>
+      </div>
+    </div>
+    <div class="papers-query-badge">
+      <span class="query-indicator"></span>
+      <span>${query}</span>
+    </div>
+  </div>`
+  
+  html += `<div class="papers-grid">`
+  
+  for (let i = 0; i < Math.min(papers.length, 6); i++) {
+    const paper = papers[i]
+    const authors = paper.authors ? paper.authors.slice(0, 2).join(', ') + (paper.authors.length > 2 ? ' et al.' : '') : 'Unknown'
+    const year = paper.year || 'N/A'
+    const citations = paper.cited_by_count || 0
+    const isOpenAccess = paper.open_access
+    const abstract = paper.abstract ? paper.abstract.substring(0, 120) + '...' : ''
+    const doi = paper.doi || ''
+    
+    // 根据引用数决定热度等级
+    let hotLevel = ''
+    if (citations > 1000) hotLevel = 'hot-fire'
+    else if (citations > 100) hotLevel = 'hot-warm'
+    
+    html += `
+      <div class="paper-card ${hotLevel}" style="animation-delay: ${i * 0.05}s">
+        <div class="paper-card-glow"></div>
+        <div class="paper-card-inner">
+          <div class="paper-card-header">
+            <div class="paper-badges">
+              ${isOpenAccess ? '<span class="paper-badge paper-badge-oa"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> Open</span>' : ''}
+              ${hotLevel === 'hot-fire' ? '<span class="paper-badge paper-badge-hot">🔥 High Impact</span>' : ''}
+            </div>
+            <span class="paper-year-badge">${year}</span>
+          </div>
+          <h4 class="paper-title">${paper.title || 'Untitled'}</h4>
+          <p class="paper-authors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            ${authors}
+          </p>
+          ${abstract ? `<p class="paper-abstract">${abstract}</p>` : ''}
+          <div class="paper-footer">
+            <div class="paper-stats">
+              <div class="stat-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 3v18h18"></path>
+                  <path d="m19 9-5 5-4-4-3 3"></path>
+                </svg>
+                <span class="stat-value">${formatCitations(citations)}</span>
+                <span class="stat-label">引用</span>
+              </div>
+            </div>
+            ${doi ? `<a href="${doi}" target="_blank" class="paper-link">
+              <span>查看详情</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <line x1="10" y1="14" x2="21" y2="3"></line>
+              </svg>
+            </a>` : ''}
+          </div>
+        </div>
+      </div>
+    `
+  }
+  
+  html += `</div>`
+  
+  // 如果论文数量超过6篇，显示查看更多提示
+  if (papers.length > 6) {
+    html += `<div class="papers-more">
+      <span>还有 ${papers.length - 6} 篇论文未显示</span>
+    </div>`
+  }
+  
+  html += `</div>`
+  return html
+}
+
 // ============================================
 // 对话管理函数
 // ============================================
@@ -543,18 +658,18 @@ const sendMessage = async () => {
     await nextTick()
     scrollToBottom()
 
-    // Call API with SSE
-    const response = await fetch(API_ENDPOINTS.CHAT_MESSAGE, {
+    // Call Agent API with SSE
+    const token = localStorage.getItem('token')
+    const response = await fetch(API_ENDPOINTS.AGENT_CHAT, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
       body: JSON.stringify({
         message: userInput,
-        conversation_history: conversationHistory.slice(0, -1), // Exclude the current message
-        stream: true,
-        temperature: 0.7,
-        max_tokens: 2000
+        conversation_id: currentConversation.value?.id,
+        stream: true
       })
     })
 
@@ -562,12 +677,13 @@ const sendMessage = async () => {
       throw new Error(`API error: ${response.status} ${response.statusText}`)
     }
 
-    // Read SSE stream
+    // Read SSE stream from Agent Service
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
     let fullResponse = ''
     let assistantMessageIndex = -1
+    let currentEvent = ''
 
     while (true) {
       const { done, value } = await reader.read()
@@ -579,18 +695,57 @@ const sendMessage = async () => {
       buffer = lines.pop() || ''
 
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
+        // 解析事件类型
+        if (line.startsWith('event:')) {
+          currentEvent = line.slice(6).trim()
+          continue
+        }
+        
+        if (line.startsWith('data:')) {
+          const data = line.slice(5).trim()
           
-          if (data === '[DONE]') continue
+          if (!data || data === '') continue
 
           try {
-            const parsed = JSON.parse(data)
-            
-            if (parsed.content) {
-              fullResponse += parsed.content
-              
-              // 第一次收到内容时，创建 assistant 消息并隐藏加载动画
+            // 处理不同类型的事件
+            if (currentEvent === 'thinking') {
+              // 显示思考过程（可选：可以在 UI 中显示）
+              console.log('🤔 Agent thinking:', data)
+              // 第一次收到内容时，创建 assistant 消息
+              if (assistantMessageIndex === -1) {
+                isLoading.value = false
+                assistantMessageIndex = messages.value.length
+                messages.value.push({
+                  role: 'assistant',
+                  content: `<div class="agent-thinking">🤔 ${JSON.parse(data)}</div>`,
+                  time: getCurrentTime()
+                })
+                await nextTick()
+                scrollToBottom()
+              }
+            } else if (currentEvent === 'tool_call') {
+              // 显示工具调用
+              const toolData = JSON.parse(data)
+              console.log('🔧 Tool call:', toolData)
+              if (assistantMessageIndex !== -1) {
+                const toolInfo = `<div class="agent-tool-call">🔧 调用工具: ${toolData.name}</div>`
+                messages.value[assistantMessageIndex].content += toolInfo
+                await nextTick()
+                scrollToBottom()
+              }
+            } else if (currentEvent === 'papers') {
+              // 渲染论文卡片
+              const papersData = JSON.parse(data)
+              console.log('📚 Papers result:', papersData)
+              if (assistantMessageIndex !== -1) {
+                const papersHtml = renderPapersCards(papersData)
+                messages.value[assistantMessageIndex].content += papersHtml
+                await nextTick()
+                scrollToBottom()
+              }
+            } else if (currentEvent === 'answer') {
+              // 最终答案
+              fullResponse = JSON.parse(data)
               if (assistantMessageIndex === -1) {
                 isLoading.value = false
                 assistantMessageIndex = messages.value.length
@@ -600,21 +755,37 @@ const sendMessage = async () => {
                   time: getCurrentTime()
                 })
               }
-              
               // Render LaTeX first, then markdown
               const latexRendered = renderLatex(fullResponse)
               messages.value[assistantMessageIndex].content = marked(latexRendered)
-              
               await nextTick()
               scrollToBottom()
-            }
-            
-            if (parsed.error) {
-              throw new Error(parsed.error)
+            } else if (currentEvent === 'error') {
+              const errorData = JSON.parse(data)
+              throw new Error(errorData.error || 'Agent error')
+            } else if (currentEvent === 'done') {
+              // 流式传输完成
+              console.log('✅ Agent done')
             }
           } catch (e) {
             if (e instanceof SyntaxError) {
-              // Ignore JSON parsing errors for incomplete chunks
+              // 尝试直接使用 data 字符串
+              if (currentEvent === 'answer' && data) {
+                fullResponse = data
+                if (assistantMessageIndex === -1) {
+                  isLoading.value = false
+                  assistantMessageIndex = messages.value.length
+                  messages.value.push({
+                    role: 'assistant',
+                    content: '',
+                    time: getCurrentTime()
+                  })
+                }
+                const latexRendered = renderLatex(fullResponse)
+                messages.value[assistantMessageIndex].content = marked(latexRendered)
+                await nextTick()
+                scrollToBottom()
+              }
               continue
             }
             throw e
@@ -1349,6 +1520,399 @@ onMounted(async () => {
   padding: 12px;
   border-radius: 8px;
   border-left: 3px solid var(--accent-danger);
+}
+
+/* Agent Thinking & Tool Call - Modern Style */
+.message-text :deep(.agent-thinking) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.05));
+  border-radius: 10px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(102, 126, 234, 0.15);
+  animation: thinkingPulse 2s ease-in-out infinite;
+}
+
+@keyframes thinkingPulse {
+  0%, 100% { 
+    border-color: rgba(102, 126, 234, 0.15);
+    box-shadow: none;
+  }
+  50% { 
+    border-color: rgba(102, 126, 234, 0.3);
+    box-shadow: 0 0 20px rgba(102, 126, 234, 0.1);
+  }
+}
+
+.message-text :deep(.agent-tool-call) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--accent-success);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(78, 205, 196, 0.1), rgba(78, 205, 196, 0.05));
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(78, 205, 196, 0.2);
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
+.message-text :deep(.agent-tool-call::before) {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-success);
+  box-shadow: 0 0 10px var(--accent-success);
+  animation: toolPulse 1s ease-in-out infinite;
+}
+
+@keyframes toolPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.7; }
+}
+
+/* Papers Cards - Modern Design */
+.message-text :deep(.papers-container) {
+  margin: 20px 0;
+  padding: 0;
+}
+
+.message-text :deep(.papers-header) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+}
+
+.message-text :deep(.papers-header-left) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.message-text :deep(.papers-icon-wrapper) {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--gradient-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: var(--glow-primary);
+}
+
+.message-text :deep(.papers-header-text) {
+  display: flex;
+  flex-direction: column;
+}
+
+.message-text :deep(.papers-count) {
+  font-size: 24px;
+  font-weight: 700;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+}
+
+.message-text :deep(.papers-label) {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.message-text :deep(.papers-query-badge) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border-primary);
+}
+
+.message-text :deep(.query-indicator) {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-success);
+  box-shadow: 0 0 10px var(--accent-success);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.message-text :deep(.papers-grid) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.message-text :deep(.paper-card) {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  animation: paperFadeIn 0.4s ease forwards;
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+@keyframes paperFadeIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-text :deep(.paper-card-glow) {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.1));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  transition: all 0.3s ease;
+}
+
+.message-text :deep(.paper-card:hover .paper-card-glow) {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.6), rgba(118, 75, 162, 0.3));
+  box-shadow: 0 0 30px rgba(102, 126, 234, 0.3);
+}
+
+.message-text :deep(.paper-card.hot-fire .paper-card-glow) {
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.4), rgba(255, 165, 0, 0.2));
+}
+
+.message-text :deep(.paper-card.hot-fire:hover .paper-card-glow) {
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.6), rgba(255, 165, 0, 0.4));
+  box-shadow: 0 0 30px rgba(255, 107, 107, 0.3);
+}
+
+.message-text :deep(.paper-card-inner) {
+  background: var(--bg-card);
+  backdrop-filter: blur(10px);
+  padding: 20px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.message-text :deep(.paper-card-header) {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.message-text :deep(.paper-badges) {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.message-text :deep(.paper-badge) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.message-text :deep(.paper-badge-oa) {
+  background: rgba(78, 205, 196, 0.15);
+  color: var(--accent-success);
+  border: 1px solid rgba(78, 205, 196, 0.3);
+}
+
+.message-text :deep(.paper-badge-hot) {
+  background: rgba(255, 107, 107, 0.15);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.message-text :deep(.paper-year-badge) {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-primary);
+}
+
+.message-text :deep(.paper-title) {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 10px 0;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.message-text :deep(.paper-authors) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 10px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-text :deep(.paper-authors svg) {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.message-text :deep(.paper-abstract) {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0 0 16px 0;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  flex: 1;
+}
+
+.message-text :deep(.paper-footer) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-primary);
+  margin-top: auto;
+}
+
+.message-text :deep(.paper-stats) {
+  display: flex;
+  gap: 16px;
+}
+
+.message-text :deep(.stat-item) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message-text :deep(.stat-item svg) {
+  color: var(--accent-primary);
+  opacity: 0.8;
+}
+
+.message-text :deep(.stat-value) {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.message-text :deep(.stat-label) {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.message-text :deep(.paper-link) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-primary);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(102, 126, 234, 0.2);
+  transition: all 0.3s ease;
+}
+
+.message-text :deep(.paper-link:hover) {
+  background: var(--gradient-primary);
+  color: white;
+  border-color: transparent;
+  box-shadow: var(--glow-primary);
+  transform: translateY(-1px);
+}
+
+.message-text :deep(.papers-more) {
+  text-align: center;
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-primary);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.message-text :deep(.papers-empty) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  text-align: center;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-primary);
+  border-radius: 12px;
+}
+
+.message-text :deep(.papers-empty svg) {
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.message-text :deep(.papers-empty p) {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Responsive for papers */
+@media (max-width: 768px) {
+  .message-text :deep(.papers-grid) {
+    grid-template-columns: 1fr;
+  }
+  
+  .message-text :deep(.papers-header) {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
 }
 
 /* KaTeX Math Rendering */

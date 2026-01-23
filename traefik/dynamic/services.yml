@@ -60,6 +60,13 @@ http:
       entryPoints:
         - web
 
+    # Agent 服务
+    agent-router:
+      rule: "PathPrefix(`/api/agent`)"
+      service: agent-service
+      entryPoints:
+        - web
+
   # ============ 服务定义 ============
   services:
     auth-service:
@@ -101,6 +108,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://host.docker.internal:8008"
+
+    agent-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8000"
 
   # ============ 中间件 ============
   middlewares:

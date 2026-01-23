@@ -1,0 +1,30 @@
+# FastAPI
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.6
+
+# LangGraph & LangChain
+langgraph>=0.2.0
+langchain-core>=0.2.27,<0.3
+langchain-openai>=0.1.0,<0.2
+
+# HTTP Client
+httpx>=0.25.2
+aiohttp>=3.9.1
+
+# SSE for streaming
+sse-starlette>=1.6.5
+
+# Data validation
+pydantic>=2.7.4,<3.0.0
+
+# Redis for memory
+redis>=5.0.1
+
+# Utilities
+tenacity>=8.2.3
+
+# JWT
+pyjwt>=2.8.0
+

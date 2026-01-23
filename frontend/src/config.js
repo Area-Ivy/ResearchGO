@@ -1,6 +1,6 @@
 // API Configuration
 // 是否使用 API 网关（Traefik）
-const USE_GATEWAY = import.meta.env.VITE_USE_GATEWAY === 'true'
+const USE_GATEWAY = import.meta.env.VITE_USE_GATEWAY === 'false'
 
 // API 网关地址
 export const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080'
@@ -17,10 +17,13 @@ export const LITERATURE_SERVICE_URL = USE_GATEWAY ? GATEWAY_URL : (import.meta.e
 export const CHAT_SERVICE_URL = USE_GATEWAY ? GATEWAY_URL : (import.meta.env.VITE_CHAT_SERVICE_URL || 'http://localhost:8006')
 export const MINDMAP_SERVICE_URL = USE_GATEWAY ? GATEWAY_URL : (import.meta.env.VITE_MINDMAP_SERVICE_URL || 'http://localhost:8007')
 export const ANALYSIS_SERVICE_URL = USE_GATEWAY ? GATEWAY_URL : (import.meta.env.VITE_ANALYSIS_SERVICE_URL || 'http://localhost:8008')
+export const AGENT_SERVICE_URL = USE_GATEWAY ? GATEWAY_URL : (import.meta.env.VITE_AGENT_SERVICE_URL || 'http://localhost:8000')
 
 export const API_ENDPOINTS = {
   CHAT_MESSAGE: `${CHAT_SERVICE_URL}/api/chat/message`,
-  CHAT_HEALTH: `${CHAT_SERVICE_URL}/api/chat/health`
+  CHAT_HEALTH: `${CHAT_SERVICE_URL}/api/chat/health`,
+  AGENT_CHAT: `${AGENT_SERVICE_URL}/api/agent/chat`,
+  AGENT_TOOLS: `${AGENT_SERVICE_URL}/api/agent/tools`
 }
 
 // 默认导出（兼容性）

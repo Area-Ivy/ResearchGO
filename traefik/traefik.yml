@@ -11,8 +11,8 @@ entryPoints:
   # API 网关主入口
   web:
     address: ":8080"
-  # Dashboard 入口
-  dashboard:
+  # Dashboard/API 入口 (Traefik 内部使用 "traefik" 这个名称)
+  traefik:
     address: ":8081"
 
 # 提供者配置 - 使用文件配置路由

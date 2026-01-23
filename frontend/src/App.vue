@@ -34,7 +34,7 @@
         </div>
         
         <nav class="sidebar-nav">
-          <router-link to="/" class="sidebar-link" @click="closeSidebarOnMobile" :title="sidebarCollapsed ? 'Dashboard' : ''">
+          <router-link to="/dashboard" class="sidebar-link" @click="closeSidebarOnMobile" :title="sidebarCollapsed ? 'Dashboard' : ''">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="7" height="7"></rect>
               <rect x="14" y="3" width="7" height="7"></rect>
@@ -152,9 +152,9 @@ const sidebarCollapsed = ref(false)
 const showUserMenu = ref(false)
 const currentUser = ref(null)
 
-// 计算是否显示侧边栏（登录页面不显示）
+// 计算是否显示侧边栏（登录页面和 Landing 页面不显示）
 const showSidebar = computed(() => {
-  return route.path !== '/login'
+  return route.path !== '/login' && route.path !== '/'
 })
 
 const toggleSidebar = () => {
@@ -600,7 +600,9 @@ onUnmounted(() => {
   margin-left: 0;
   max-width: 100%;
   padding: 0;
-  overflow: hidden;
+  height: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .main-chat {

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import Landing from '../views/Landing.vue'
 import Home from '../views/Home.vue'
 import Chat from '../views/Chat.vue'
 import LiteratureSearch from '../views/LiteratureSearch.vue'
@@ -10,13 +11,19 @@ import { isAuthenticated } from '../api/auth'
 
 const routes = [
   {
+    path: '/',
+    name: 'Landing',
+    component: Landing,
+    meta: { requiresGuest: true, isLanding: true }
+  },
+  {
     path: '/login',
     name: 'Login',
     component: Login,
     meta: { requiresGuest: true }
   },
   {
-    path: '/',
+    path: '/dashboard',
     name: 'Dashboard',
     component: Home,
     meta: { requiresAuth: true }
@@ -74,9 +81,9 @@ router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth && !authenticated) {
     next('/login')
   }
-  // 如果已登录访问登录页，重定向到首页
+  // 如果已登录访问 Landing 或登录页，重定向到 Dashboard
   else if (to.meta.requiresGuest && authenticated) {
-    next('/')
+    next('/dashboard')
   }
   else {
     next()
