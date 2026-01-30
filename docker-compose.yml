@@ -1,6 +1,29 @@
 version: '3.8'
 
 services:
+  # ==================== 基础设施服务 ====================
+  
+  # 服务注册与发现 - Consul
+  consul:
+    image: hashicorp/consul:1.15
+    container_name: researchgo-consul
+    restart: unless-stopped
+    ports:
+      - "8500:8500"    # Consul UI / HTTP API
+      - "8600:8600/udp" # Consul DNS
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+    command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
+    volumes:
+      - consul_data:/consul/data
+    networks:
+      - researchgo-network
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # API 网关 - Traefik
   traefik:
     image: traefik:v3.0
@@ -14,8 +37,25 @@ services:
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
     networks:
       - researchgo-network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"  # 允许访问宿主机服务
+    depends_on:
+      consul:
+        condition: service_healthy
+      agent-service:
+        condition: service_started
+      auth-service:
+        condition: service_started
+      conversation-service:
+        condition: service_started
+      paper-storage-service:
+        condition: service_started
+      vector-search-service:
+        condition: service_started
+      literature-search-service:
+        condition: service_started
+      mindmap-service:
+        condition: service_started
+      analysis-service:
+        condition: service_started
 
   minio:
     image: minio/minio:latest
@@ -28,7 +68,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
     volumes:
-      - ./minio_data:/data
+      - minio_data:/data
     command: server /data --console-address ":9001"
     networks:
       - researchgo-network
@@ -48,7 +88,7 @@ services:
       - ETCD_QUOTA_BACKEND_BYTES=4294967296
       - ETCD_SNAPSHOT_COUNT=50000
     volumes:
-      - ./etcd_data:/etcd
+      - etcd_data:/etcd
     command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
     networks:
       - researchgo-network
@@ -71,11 +111,11 @@ services:
       ETCD_USE_EMBED: "false"
       ETCD_ENDPOINTS: "etcd:2379"
       MINIO_ADDRESS: "minio:9000"
-      MINIO_ACCESS_KEY_ID: "minioadmin"
-      MINIO_SECRET_ACCESS_KEY: "minioadmin123"
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
       COMMON_STORAGETYPE: "minio"
     volumes:
-      - ./milvus_data:/var/lib/milvus
+      - milvus_data:/var/lib/milvus
     command: milvus run standalone
     depends_on:
       - etcd
@@ -159,6 +199,270 @@ services:
       timeout: 10s
       retries: 5
 
+  # ==================== 微服务 ====================
+
+  # Agent 服务 - AI 智能体 (核心服务)
+  agent-service:
+    build:
+      context: ./backend/services/agent-service
+      dockerfile: Dockerfile
+    container_name: researchgo-agent
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - CONVERSATION_SERVICE_URL=http://conversation-service:8002
+      - VECTOR_SEARCH_SERVICE_URL=http://vector-search-service:8004
+      - LITERATURE_SERVICE_URL=http://literature-search-service:8005
+      - ANALYSIS_SERVICE_URL=http://analysis-service:8008
+      # Redis for memory system
+      - REDIS_URL=redis://redis:6379/0
+      # Memory system configuration
+      - ENABLE_CHECKPOINTER=true
+      - ENABLE_CONVERSATION_SUMMARY=true
+      - ENABLE_SEMANTIC_MEMORY=true
+      - SLIDING_WINDOW_SIZE=10
+      # Consul 服务注册
+      - CONSUL_HOST=consul
+      - SERVICE_NAME=agent-service
+      - SERVICE_PORT=8000
+    networks:
+      - researchgo-network
+    depends_on:
+      consul:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      redis:
+        condition: service_started
+      vector-search-service:
+        condition: service_started
+      literature-search-service:
+        condition: service_started
+
+  # 认证服务
+  auth-service:
+    build:
+      context: ./backend/services/auth-service
+      dockerfile: Dockerfile
+    container_name: researchgo-auth
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-researchgo_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-researchgo123}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-researchgo}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
+      # Consul 服务注册
+      - CONSUL_HOST=consul
+      - SERVICE_NAME=auth-service
+      - SERVICE_PORT=8001
+    networks:
+      - researchgo-network
+    depends_on:
+      consul:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+
+  # 对话服务
+  conversation-service:
+    build:
+      context: ./backend/services/conversation-service
+      dockerfile: Dockerfile
+    container_name: researchgo-conversation
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-researchgo_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-researchgo123}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-researchgo}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      # Consul 服务注册
+      - CONSUL_HOST=consul
+      - SERVICE_NAME=conversation-service
+      - SERVICE_PORT=8002
+    networks:
+      - researchgo-network
+    depends_on:
+      consul:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+
+  # 论文存储服务
+  paper-storage-service:
+    build:
+      context: ./backend/services/paper-storage-service
+      dockerfile: Dockerfile
+    container_name: researchgo-paper
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-researchgo_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-researchgo123}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-researchgo}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      - MINIO_BUCKET=papers
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - VECTOR_SEARCH_SERVICE_URL=http://vector-search-service:8004
+      # LLM 结构化解析需要 OpenAI
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      # Consul 服务注册
+      - CONSUL_HOST=consul
+      - SERVICE_NAME=paper-storage-service
+      - SERVICE_PORT=8003
+    networks:
+      - researchgo-network
+    depends_on:
+      consul:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+
+  # 向量搜索服务
+  vector-search-service:
+    build:
+      context: ./backend/services/vector-search-service
+      dockerfile: Dockerfile
+    container_name: researchgo-vector
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-researchgo_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-researchgo123}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-researchgo}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      # Consul 服务注册
+      - CONSUL_HOST=consul
+      - SERVICE_NAME=vector-search-service
+      - SERVICE_PORT=8004
+    networks:
+      - researchgo-network
+    depends_on:
+      consul:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+
+  # 文献检索服务
+  literature-search-service:
+    build:
+      context: ./backend/services/literature-search-service
+      dockerfile: Dockerfile
+    container_name: researchgo-literature
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      # Consul 服务注册
+      - CONSUL_HOST=consul
+      - SERVICE_NAME=literature-search-service
+      - SERVICE_PORT=8005
+    networks:
+      - researchgo-network
+    depends_on:
+      consul:
+        condition: service_healthy
+
+  # 思维导图服务
+  mindmap-service:
+    build:
+      context: ./backend/services/mindmap-service
+      dockerfile: Dockerfile
+    container_name: researchgo-mindmap
+    restart: unless-stopped
+    ports:
+      - "8007:8007"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      - MINIO_BUCKET_NAME=papers
+      # Consul 服务注册
+      - CONSUL_HOST=consul
+      - SERVICE_NAME=mindmap-service
+      - SERVICE_PORT=8007
+    networks:
+      - researchgo-network
+    depends_on:
+      consul:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # 分析服务
+  analysis-service:
+    build:
+      context: ./backend/services/analysis-service
+      dockerfile: Dockerfile
+    container_name: researchgo-analysis
+    restart: unless-stopped
+    ports:
+      - "8008:8008"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      - MINIO_BUCKET_NAME=papers
+      # Consul 服务注册
+      - CONSUL_HOST=consul
+      - SERVICE_NAME=analysis-service
+      - SERVICE_PORT=8008
+    networks:
+      - researchgo-network
+    depends_on:
+      consul:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
 networks:
   researchgo-network:
     driver: bridge
@@ -176,4 +480,5 @@ volumes:
     driver: local
   redis_data:
     driver: local
-
+  consul_data:
+    driver: local

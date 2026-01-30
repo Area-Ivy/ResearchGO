@@ -62,6 +62,13 @@ async def startup_event():
     logger.info("启动认证服务 (Auth Service)...")
     logger.info("🔐 提供功能: 用户注册、登录、Token验证")
     
+    # Register to Consul
+    try:
+        from app.utils.consul_registry import register_service
+        await register_service()
+    except Exception as e:
+        logger.warning(f"Consul registration failed: {e}")
+    
     try:
         init_db()
         logger.info("✓ 数据库初始化成功")
@@ -75,4 +82,11 @@ async def startup_event():
 async def shutdown_event():
     """关闭事件"""
     logger.info("关闭认证服务...")
+    
+    # Deregister from Consul
+    try:
+        from app.utils.consul_registry import deregister_service
+        await deregister_service()
+    except Exception as e:
+        logger.warning(f"Consul deregistration failed: {e}")
 

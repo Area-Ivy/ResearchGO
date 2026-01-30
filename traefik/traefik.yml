@@ -15,11 +15,24 @@ entryPoints:
   traefik:
     address: ":8081"
 
-# 提供者配置 - 使用文件配置路由
+# 提供者配置
 providers:
+  # 文件配置 - 路由规则和中间件
   file:
     directory: /etc/traefik/dynamic
     watch: true  # 自动监听配置变化
+  
+  # Consul Catalog - 服务发现
+  consulCatalog:
+    endpoint:
+      address: "consul:8500"
+      scheme: "http"
+    # 只发现有 traefik.enable=true 标签的服务
+    exposedByDefault: false
+    # 健康检查
+    watch: true
+    # 默认使用服务名作为路由
+    defaultRule: "PathPrefix(`/api/{{ .Name | trimPrefix \"researchgo-\" }}`)"
 
 # 日志配置
 log:

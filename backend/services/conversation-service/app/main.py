@@ -61,6 +61,13 @@ async def startup_event():
     logger.info("启动对话服务 (Conversation Service)...")
     logger.info("💬 提供功能: 对话管理、消息管理")
     
+    # Register to Consul
+    try:
+        from app.utils.consul_registry import register_service
+        await register_service()
+    except Exception as e:
+        logger.warning(f"Consul registration failed: {e}")
+    
     try:
         init_db()
         logger.info("✓ 数据库初始化成功")
@@ -73,5 +80,12 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """关闭事件"""
+    # Deregister from Consul
+    try:
+        from app.utils.consul_registry import deregister_service
+        await deregister_service()
+    except Exception as e:
+        logger.warning(f"Consul deregistration failed: {e}")
+    
     logger.info("关闭对话服务...")
 

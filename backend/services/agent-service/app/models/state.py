@@ -41,6 +41,12 @@ class AgentState(TypedDict):
     # 用户信息
     user_id: Optional[str]
     
+    # 对话ID（用于记忆系统）
+    conversation_id: Optional[str]
+    
+    # 认证 Token（用于调用其他服务）
+    token: Optional[str]
+    
     # 工具调用记录
     tool_calls: List[ToolCall]
     

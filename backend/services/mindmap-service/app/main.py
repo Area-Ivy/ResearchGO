@@ -48,6 +48,13 @@ async def startup_event():
     logger.info("🧠 Mindmap Service 启动中...")
     logger.info("=" * 50)
     
+    # Register to Consul
+    try:
+        from app.utils.consul_registry import register_service
+        await register_service()
+    except Exception as e:
+        logger.warning(f"Consul registration failed: {e}")
+    
     # 检查配置
     minio_endpoint = os.getenv('MINIO_ENDPOINT', 'localhost:9000')
     logger.info(f"📦 MinIO: {minio_endpoint}")
@@ -67,6 +74,13 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭事件"""
+    # Deregister from Consul
+    try:
+        from app.utils.consul_registry import deregister_service
+        await deregister_service()
+    except Exception as e:
+        logger.warning(f"Consul deregistration failed: {e}")
+    
     logger.info("🧠 Mindmap Service 已关闭")
 
 
@@ -79,4 +93,10 @@ async def root():
         "status": "running",
         "docs": "/docs"
     }
+
+
+@app.get("/health")
+async def health():
+    """健康检查端点 - 供 Traefik 等网关使用"""
+    return {"status": "healthy", "service": "mindmap-service"}
 

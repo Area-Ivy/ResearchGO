@@ -52,13 +52,30 @@ class MilvusService:
         except Exception as e:
             logger.error(f"Error disconnecting from Milvus: {str(e)}")
     
-    def create_collection(self, dim: int = 1536) -> bool:
+    def drop_collection(self) -> bool:
+        """删除向量集合（用于重建 schema）"""
+        try:
+            if utility.has_collection(self.collection_name):
+                utility.drop_collection(self.collection_name)
+                logger.info(f"✓ Dropped collection '{self.collection_name}'")
+                self.collection = None
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to drop collection: {str(e)}")
+            return False
+    
+    def create_collection(self, dim: int = 1536, force_recreate: bool = False) -> bool:
         """创建向量集合（如果不存在）"""
         try:
             if utility.has_collection(self.collection_name):
-                logger.info(f"Collection '{self.collection_name}' already exists")
-                self.collection = Collection(self.collection_name)
-                return True
+                if force_recreate:
+                    logger.info(f"Force recreating collection '{self.collection_name}'...")
+                    self.drop_collection()
+                else:
+                    logger.info(f"Collection '{self.collection_name}' already exists")
+                    self.collection = Collection(self.collection_name)
+                    return True
             
             # 定义字段
             fields = [
@@ -71,7 +88,7 @@ class MilvusService:
                 FieldSchema(name="file_name", dtype=DataType.VARCHAR, max_length=500),
                 FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
                 FieldSchema(name="chunk_chars", dtype=DataType.INT64),
-                FieldSchema(name="page_range", dtype=DataType.VARCHAR, max_length=50),
+                FieldSchema(name="page_range", dtype=DataType.VARCHAR, max_length=200),  # hierarchy_path 需要更长
                 FieldSchema(name="upload_time", dtype=DataType.VARCHAR, max_length=50),
                 FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=100),
             ]
@@ -206,19 +223,36 @@ class MilvusService:
     
     def delete_by_paper_id(self, paper_ids: List[str]) -> bool:
         """根据论文ID删除向量"""
+        import json
         try:
             if not self.collection:
                 logger.error("Collection not initialized")
                 return False
             
-            expr = f"paper_id in {paper_ids}"
-            self.collection.delete(expr)
+            # 使用 json.dumps 确保字符串用双引号（Milvus 要求）
+            paper_ids_str = json.dumps(paper_ids)
+            expr = f"paper_id in {paper_ids_str}"
             
-            logger.info(f"✓ Deleted vectors for {len(paper_ids)} papers")
+            logger.info(f"Deleting vectors with expr: {expr}")
+            
+            # 先查询有多少条记录
+            before_count = self.collection.query(expr=expr, output_fields=["paper_id"])
+            logger.info(f"Found {len(before_count)} vectors to delete")
+            
+            if len(before_count) > 0:
+                self.collection.delete(expr)
+                # 刷新以确保删除生效
+                self.collection.flush()
+                logger.info(f"✓ Deleted {len(before_count)} vectors for papers: {paper_ids}")
+            else:
+                logger.warning(f"No vectors found for papers: {paper_ids}")
+            
             return True
             
         except Exception as e:
             logger.error(f"Failed to delete vectors: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
     
     def get_collection_stats(self) -> Dict[str, Any]:

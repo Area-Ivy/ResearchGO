@@ -20,3 +20,14 @@ sse-starlette==2.2.1
 
 # Utils
 python-multipart==0.0.20
+
+# ============================================
+# Hybrid Search (BM25 + Reranker)
+# ============================================
+# BM25 稀疏检索
+rank-bm25==0.2.2
+jieba==0.42.1
+
+# Cross-Encoder Reranker
+sentence-transformers>=2.2.0
+torch>=2.0.0

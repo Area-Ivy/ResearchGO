@@ -2,7 +2,8 @@
 OpenAI服务 - 用于生成文本嵌入和AI回答
 """
 import os
-from typing import List, AsyncGenerator
+import re
+from typing import List, AsyncGenerator, Tuple
 from openai import AsyncOpenAI
 import logging
 
@@ -164,6 +165,98 @@ class OpenAIService:
         except Exception as e:
             logger.error(f"Error generating answer: {str(e)}")
             return f"抱歉，生成答案时出错：{str(e)}"
+    
+    def detect_language(self, text: str) -> str:
+        """
+        检测文本语言（简单实现）
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            'zh' 表示中文, 'en' 表示英文, 'mixed' 表示混合
+        """
+        # 统计中文字符数量
+        chinese_pattern = re.compile(r'[\u4e00-\u9fff]')
+        chinese_chars = len(chinese_pattern.findall(text))
+        
+        # 统计英文单词数量
+        english_pattern = re.compile(r'[a-zA-Z]+')
+        english_words = len(english_pattern.findall(text))
+        
+        total_chars = len(text.strip())
+        
+        if total_chars == 0:
+            return 'en'
+        
+        chinese_ratio = chinese_chars / total_chars
+        
+        if chinese_ratio > 0.3:
+            return 'zh'
+        elif chinese_ratio < 0.1 and english_words > 0:
+            return 'en'
+        else:
+            return 'mixed'
+    
+    async def translate_query(
+        self,
+        query: str,
+        target_language: str = 'en',
+        model: str = None
+    ) -> Tuple[str, bool]:
+        """
+        翻译查询（用于跨语言检索）
+        
+        Args:
+            query: 原始查询
+            target_language: 目标语言 ('en' 或 'zh')
+            model: 使用的模型
+            
+        Returns:
+            Tuple[str, bool]: (翻译后的查询, 是否进行了翻译)
+        """
+        source_language = self.detect_language(query)
+        
+        # 如果已经是目标语言，不需要翻译
+        if source_language == target_language:
+            logger.info(f"Query already in {target_language}, no translation needed")
+            return query, False
+        
+        # 如果是纯英文查询目标为英文，不需要翻译
+        if source_language == 'en' and target_language == 'en':
+            return query, False
+        
+        try:
+            if target_language == 'en':
+                system_prompt = """You are a professional translator for academic queries.
+Translate the following Chinese query to English.
+Keep academic terms accurate and natural.
+Only output the translation, nothing else."""
+            else:
+                system_prompt = """你是一个专业的学术查询翻译器。
+将以下英文查询翻译成中文。
+保持学术术语准确自然。
+只输出翻译结果，不要其他内容。"""
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": query}
+            ]
+            
+            response = await self.client.chat.completions.create(
+                model=model or "gpt-4o-mini",  # 使用轻量模型提高速度
+                messages=messages,
+                temperature=0.3,
+                max_tokens=500
+            )
+            
+            translated = response.choices[0].message.content.strip()
+            logger.info(f"Translated query: '{query}' -> '{translated}'")
+            return translated, True
+            
+        except Exception as e:
+            logger.error(f"Translation failed: {str(e)}, using original query")
+            return query, False
 
 
 # 全局实例

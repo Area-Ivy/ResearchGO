@@ -623,13 +623,8 @@ const sendMessage = async () => {
   messages.value.push(userMessage)
   inputMessage.value = ''
 
-  // 保存用户消息到数据库
-  await saveMessage('user', userInput)
-
-  // 如果是第一条消息，更新对话标题
-  if (messages.value.length === 1) {
-    await updateConversationTitle(userInput)
-  }
+  // 注意：用户消息已在 Agent Service 中自动保存，无需前端再次保存
+  // 标题也在 Agent Service 中自动生成
 
   // Auto-resize textarea
   if (inputTextarea.value) {
@@ -708,7 +703,16 @@ const sendMessage = async () => {
 
           try {
             // 处理不同类型的事件
-            if (currentEvent === 'thinking') {
+            if (currentEvent === 'conversation') {
+              // 新创建的对话，更新 conversation_id
+              const convData = JSON.parse(data)
+              if (convData.conversation_id && !currentConversation.value) {
+                currentConversation.value = { id: convData.conversation_id }
+                console.log('📝 New conversation created:', convData.conversation_id)
+                // 刷新对话列表
+                await loadConversations()
+              }
+            } else if (currentEvent === 'thinking') {
               // 显示思考过程（可选：可以在 UI 中显示）
               console.log('🤔 Agent thinking:', data)
               // 第一次收到内容时，创建 assistant 消息
@@ -743,9 +747,34 @@ const sendMessage = async () => {
                 await nextTick()
                 scrollToBottom()
               }
-            } else if (currentEvent === 'answer') {
-              // 最终答案
-              fullResponse = JSON.parse(data)
+            } else if (currentEvent === 'token') {
+              // Token 级别流式输出 - 实时显示每个 token
+              const tokenContent = JSON.parse(data)
+              if (assistantMessageIndex === -1) {
+                isLoading.value = false
+                assistantMessageIndex = messages.value.length
+                messages.value.push({
+                  role: 'assistant',
+                  content: '',
+                  rawContent: '', // 存储原始文本用于 markdown 渲染
+                  time: getCurrentTime()
+                })
+              }
+              // 累积原始文本
+              messages.value[assistantMessageIndex].rawContent = 
+                (messages.value[assistantMessageIndex].rawContent || '') + tokenContent
+              fullResponse = messages.value[assistantMessageIndex].rawContent
+              // 实时渲染 markdown
+              const latexRendered = renderLatex(fullResponse)
+              messages.value[assistantMessageIndex].content = marked(latexRendered)
+              await nextTick()
+              scrollToBottom()
+            } else if (currentEvent === 'answer' || currentEvent === 'answer_end') {
+              // 最终答案（完整答案或流式结束）
+              if (currentEvent === 'answer') {
+                fullResponse = JSON.parse(data)
+              }
+              // 如果之前没有流式输出，创建消息
               if (assistantMessageIndex === -1) {
                 isLoading.value = false
                 assistantMessageIndex = messages.value.length
@@ -755,9 +784,11 @@ const sendMessage = async () => {
                   time: getCurrentTime()
                 })
               }
-              // Render LaTeX first, then markdown
-              const latexRendered = renderLatex(fullResponse)
-              messages.value[assistantMessageIndex].content = marked(latexRendered)
+              // 只有在有完整答案时才覆盖（非流式场景）
+              if (fullResponse) {
+                const latexRendered = renderLatex(fullResponse)
+                messages.value[assistantMessageIndex].content = marked(latexRendered)
+              }
               await nextTick()
               scrollToBottom()
             } else if (currentEvent === 'error') {
@@ -794,12 +825,9 @@ const sendMessage = async () => {
       }
     }
 
-    // 保存AI回复到数据库
+    // 刷新对话列表以更新消息数量
+    // 注意：消息已在 Agent Service 中自动保存，无需前端再次保存
     if (fullResponse && assistantMessageIndex !== -1) {
-      // 保存原始内容（不包含HTML标签）
-      await saveMessage('assistant', fullResponse)
-      
-      // 刷新对话列表以更新消息数量
       await loadConversations()
     }
 

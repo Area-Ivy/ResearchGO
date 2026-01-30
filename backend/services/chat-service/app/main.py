@@ -81,3 +81,9 @@ async def root():
         "docs": "/docs"
     }
 
+
+@app.get("/health")
+async def health():
+    """健康检查端点 - 供 Traefik 等网关使用"""
+    return {"status": "healthy", "service": "chat-service"}
+

@@ -8,7 +8,7 @@ import httpx
 import pdfplumber
 from datetime import datetime
 from dotenv import load_dotenv
-from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from minio.error import S3Error
@@ -67,40 +67,107 @@ async def index_paper_to_vector_db(
     title: str,
     file_name: str,
     pdf_content: bytes,
-    token: str
+    token: str,
+    use_structured: bool = True
 ):
-    """将论文索引到向量数据库（后台任务）"""
+    """
+    将论文索引到向量数据库（后台任务）
+    
+    Args:
+        paper_id: 论文ID
+        title: 论文标题
+        file_name: 文件名
+        pdf_content: PDF二进制内容
+        token: 认证令牌
+        use_structured: 是否使用结构化解析（LLM 结构解析 + 递归语义切分）
+    """
     try:
-        # 1. 提取PDF文本
-        logger.info(f"Indexing paper: {paper_id}")
+        logger.info(f"Indexing paper: {paper_id} (structured={use_structured})")
+        
+        # 提取PDF文本
         content = await extract_text_from_pdf(pdf_content)
         
         if not content or len(content) < 100:
             logger.warning(f"Insufficient content extracted from {paper_id}, skipping indexing")
             return
         
-        # 2. 调用向量搜索服务的索引API
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        index_request = {
+            "paper_id": paper_id,
+            "title": title,
+            "file_name": file_name,
+            "max_chunk_size": 1000,
+        }
+        
+        if use_structured:
+            # 结构化模式：LLM 解析 + 递归语义切分
+            try:
+                from app.utils.paper_structure_parser import get_paper_structure_parser
+                from app.utils.recursive_semantic_chunker import chunk_structured_paper
+                
+                logger.info("Step 1: LLM 结构解析...")
+                parser = get_paper_structure_parser()
+                paper_structure = await parser.parse_structure(content)
+                
+                logger.info("Step 2: 递归语义切分...")
+                structured_chunks = chunk_structured_paper(
+                    paper_structure=paper_structure.to_dict(),
+                    max_chunk_size=1000,
+                    min_chunk_size=100,
+                    chunk_overlap=100
+                )
+                
+                # 构建结构化索引请求
+                index_request["structured_chunks"] = [
+                    {
+                        "content": chunk.content,
+                        "chunk_index": chunk.chunk_index,
+                        "section_type": chunk.section_type,
+                        "section_title": chunk.section_title,
+                        "subsection_title": chunk.subsection_title,
+                        "hierarchy_path": chunk.hierarchy_path,
+                        "char_count": chunk.char_count,
+                        "is_complete_section": chunk.is_complete_section,
+                        "metadata": {}
+                    }
+                    for chunk in structured_chunks
+                ]
+                index_request["paper_metadata"] = {
+                    "title": paper_structure.title,
+                    "authors": paper_structure.authors,
+                    "abstract": paper_structure.abstract[:500] if paper_structure.abstract else "",
+                    "references_count": paper_structure.references_count
+                }
+                
+                logger.info(f"✓ 结构化解析完成: {len(structured_chunks)} chunks")
+                
+            except Exception as e:
+                logger.warning(f"结构化解析失败，回退到简单模式: {e}")
+                index_request["content"] = content
+        else:
+            # 简单模式
+            index_request["content"] = content
+        
+        # 调用向量搜索服务的索引API
+        async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
                 f"{VECTOR_SEARCH_SERVICE_URL}/api/vector/index",
-                json={
-                    "paper_id": paper_id,
-                    "title": title,
-                    "file_name": file_name,
-                    "content": content,
-                    "max_chunk_size": 1000
-                },
+                json=index_request,
                 headers={"Authorization": f"Bearer {token}"}
             )
             
             if response.status_code == 200:
                 result = response.json()
-                logger.info(f"✓ Paper indexed successfully: {paper_id}, chunks: {result.get('chunks_created', 0)}")
+                logger.info(f"✓ Paper indexed successfully: {paper_id}")
+                logger.info(f"  - Chunks: {result.get('chunks_created', 0)}")
+                if result.get('section_types'):
+                    logger.info(f"  - Section types: {result.get('section_types')}")
             else:
                 logger.error(f"Failed to index paper {paper_id}: {response.status_code} - {response.text}")
                 
     except Exception as e:
         logger.error(f"Error indexing paper {paper_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 router = APIRouter(prefix="/api/papers", tags=["论文存储"])
 
@@ -360,10 +427,11 @@ async def view_paper(
 @router.delete("/delete/{object_name}", response_model=DeleteResponse)
 async def delete_paper(
     object_name: str,
+    request: Request,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """删除论文"""
+    """删除论文（同时删除 Milvus 向量）"""
     try:
         # 验证权限
         paper = db.query(Paper).filter(
@@ -377,11 +445,27 @@ async def delete_paper(
                 detail="论文不存在或无权访问"
             )
         
-        # 从MinIO删除
-        client = get_minio_client()
-        client.remove_object(MINIO_BUCKET, object_name)
+        # 1. 从 Milvus 删除向量索引
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                vector_response = await client.delete(
+                    f"{VECTOR_SEARCH_SERVICE_URL}/api/vector/delete/{object_name}",
+                    headers={"Authorization": f"Bearer {token}"}
+                )
+                if vector_response.status_code == 200:
+                    logger.info(f"✓ Milvus vectors deleted for: {object_name}")
+                else:
+                    logger.warning(f"Failed to delete Milvus vectors: {vector_response.status_code}")
+        except Exception as e:
+            logger.warning(f"Error deleting Milvus vectors: {e}")
+            # 继续删除 MinIO 和数据库记录
         
-        # 从数据库删除
+        # 2. 从 MinIO 删除文件
+        minio_client = get_minio_client()
+        minio_client.remove_object(MINIO_BUCKET, object_name)
+        
+        # 3. 从数据库删除记录
         db.delete(paper)
         db.commit()
         
@@ -389,7 +473,7 @@ async def delete_paper(
         
         return DeleteResponse(
             success=True,
-            message="删除成功",
+            message="删除成功（包括向量索引）",
             object_name=object_name
         )
         

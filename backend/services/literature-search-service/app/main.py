@@ -45,6 +45,14 @@ async def startup_event():
     """应用启动事件"""
     logger.info("=" * 50)
     logger.info("📚 Literature Search Service 启动中...")
+    
+    # Register to Consul
+    try:
+        from app.utils.consul_registry import register_service
+        await register_service()
+    except Exception as e:
+        logger.warning(f"Consul registration failed: {e}")
+    
     logger.info("=" * 50)
     logger.info(f"📖 OpenAlex API: https://api.openalex.org")
     logger.info(f"📧 Contact Email: {os.getenv('CONTACT_EMAIL', 'Not configured')}")
@@ -54,6 +62,13 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭事件"""
+    # Deregister from Consul
+    try:
+        from app.utils.consul_registry import deregister_service
+        await deregister_service()
+    except Exception as e:
+        logger.warning(f"Consul deregistration failed: {e}")
+    
     logger.info("📚 Literature Search Service 已关闭")
 
 @app.get("/")
@@ -66,3 +81,8 @@ async def root():
         "docs": "/docs"
     }
 
+
+@app.get("/health")
+async def health():
+    """健康检查端点 - 供 Traefik 等网关使用"""
+    return {"status": "healthy", "service": "literature-search-service"}

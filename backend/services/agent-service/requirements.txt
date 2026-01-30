@@ -25,6 +25,9 @@ redis>=5.0.1
 # Utilities
 tenacity>=8.2.3
 
+# Token counting for memory management
+tiktoken>=0.5.0
+
 # JWT
 pyjwt>=2.8.0
 

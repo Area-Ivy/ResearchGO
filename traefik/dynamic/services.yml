@@ -4,12 +4,23 @@
 http:
   # ============ 路由规则 ============
   routers:
+    # Agent 服务 (核心)
+    agent-router:
+      rule: "PathPrefix(`/api/agent`)"
+      service: agent-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors-headers
+
     # 认证服务
     auth-router:
       rule: "PathPrefix(`/api/auth`)"
       service: auth-service
       entryPoints:
         - web
+      middlewares:
+        - cors-headers
 
     # 对话服务
     conversation-router:
@@ -17,6 +28,8 @@ http:
       service: conversation-service
       entryPoints:
         - web
+      middlewares:
+        - cors-headers
 
     # 论文存储服务
     paper-router:
@@ -24,6 +37,8 @@ http:
       service: paper-service
       entryPoints:
         - web
+      middlewares:
+        - cors-headers
 
     # 向量搜索服务
     vector-router:
@@ -31,6 +46,17 @@ http:
       service: vector-service
       entryPoints:
         - web
+      middlewares:
+        - cors-headers
+
+    # Milvus 管理路由
+    milvus-router:
+      rule: "PathPrefix(`/api/milvus`)"
+      service: vector-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors-headers
 
     # 文献检索服务
     literature-router:
@@ -38,13 +64,8 @@ http:
       service: literature-service
       entryPoints:
         - web
-
-    # AI 聊天服务
-    chat-router:
-      rule: "PathPrefix(`/api/chat`)"
-      service: chat-service
-      entryPoints:
-        - web
+      middlewares:
+        - cors-headers
 
     # 思维导图服务
     mindmap-router:
@@ -52,6 +73,8 @@ http:
       service: mindmap-service
       entryPoints:
         - web
+      middlewares:
+        - cors-headers
 
     # 分析服务
     analysis-router:
@@ -59,60 +82,83 @@ http:
       service: analysis-service
       entryPoints:
         - web
-
-    # Agent 服务
-    agent-router:
-      rule: "PathPrefix(`/api/agent`)"
-      service: agent-service
-      entryPoints:
-        - web
+      middlewares:
+        - cors-headers
 
   # ============ 服务定义 ============
+  # Docker Compose 网络内使用服务名访问
   services:
+    agent-service:
+      loadBalancer:
+        servers:
+          - url: "http://agent-service:8000"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
+
     auth-service:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:8001"
+          - url: "http://auth-service:8001"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
 
     conversation-service:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:8002"
+          - url: "http://conversation-service:8002"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
 
     paper-service:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:8003"
+          - url: "http://paper-storage-service:8003"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
 
     vector-service:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:8004"
+          - url: "http://vector-search-service:8004"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
 
     literature-service:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:8005"
-
-    chat-service:
-      loadBalancer:
-        servers:
-          - url: "http://host.docker.internal:8006"
+          - url: "http://literature-search-service:8005"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
 
     mindmap-service:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:8007"
+          - url: "http://mindmap-service:8007"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
 
     analysis-service:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:8008"
-
-    agent-service:
-      loadBalancer:
-        servers:
-          - url: "http://host.docker.internal:8000"
+          - url: "http://analysis-service:8008"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
 
   # ============ 中间件 ============
   middlewares:
@@ -125,17 +171,24 @@ http:
           - "PUT"
           - "DELETE"
           - "OPTIONS"
+          - "PATCH"
         accessControlAllowHeaders:
           - "Content-Type"
           - "Authorization"
+          - "X-Requested-With"
         accessControlAllowOriginList:
           - "*"
         accessControlMaxAge: 3600
         addVaryHeader: true
 
-    # 限流配置（可选）
+    # 限流配置
     rate-limit:
       rateLimit:
         average: 100
         burst: 50
 
+    # 重试配置
+    retry:
+      retry:
+        attempts: 3
+        initialInterval: "100ms"

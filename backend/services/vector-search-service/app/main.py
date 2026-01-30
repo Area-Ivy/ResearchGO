@@ -44,6 +44,13 @@ async def startup_event():
     logger.info("🚀 向量搜索服务启动中...")
     logger.info("=" * 60)
     
+    # Register to Consul
+    try:
+        from app.utils.consul_registry import register_service
+        await register_service()
+    except Exception as e:
+        logger.warning(f"Consul registration failed: {e}")
+    
     # 初始化Milvus服务
     try:
         milvus_service = get_milvus_service()
@@ -63,6 +70,19 @@ async def startup_event():
     logger.info(f"✓ 端口: 8004")
     logger.info(f"✓ API文档: http://localhost:8004/docs")
     logger.info("=" * 60)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭时的清理"""
+    # Deregister from Consul
+    try:
+        from app.utils.consul_registry import deregister_service
+        await deregister_service()
+    except Exception as e:
+        logger.warning(f"Consul deregistration failed: {e}")
+    
+    logger.info("向量搜索服务已关闭")
 
 
 @app.get("/")
