@@ -1,298 +1,400 @@
 # ResearchGO
 
-AI-powered research assistant with intelligent chat, literature search, and analytics dashboard.
+> 基于微服务架构的 AI 学术研究助手，集成 LangGraph 智能体、RAG 混合检索、论文管理与分析等功能。
 
-## Features
+## 🌟 核心特性
 
-- 🤖 **AI Chat Assistant**: Real-time streaming responses powered by OpenAI GPT-4o
-- 🧮 **Math Formula Rendering**: LaTeX/KaTeX support for mathematical expressions
-- 📚 **Literature Search**: Search 250M+ academic papers from OpenAlex
-- 🔍 **Smart Filtering**: Filter by year, citations, open access, and more
-- 🧠 **Vector Search**: Semantic search powered by Milvus vector database
-- 🎯 **Similarity Detection**: Find similar papers based on content meaning
-- 📝 **AI Summarization**: Generate structured summaries of research papers
-- 📄 **Citation Export**: Export in BibTeX, RIS, APA, and MLA formats
-- 🔗 **Chat Integration**: Discuss papers directly with AI assistant
-- 📊 **Research Dashboard**: Track your research activity and progress
-- 🎨 **Modern UI**: Deep tech aesthetic with glassmorphism and neon effects
-- 🔄 **Real-time Updates**: Server-Sent Events (SSE) for streaming responses
-- 💾 **Smart Caching**: Keep-alive component caching to prevent unnecessary re-renders
+### 🤖 AI 智能体 (LangGraph Agent)
+- 基于 **LangGraph** 构建的研究助手智能体，支持多步推理与工具调用
+- **三层记忆架构**：短期滑动窗口 → 长对话自动摘要 → 跨会话语义记忆
+- **Redis Checkpointer** 持久化对话状态，支持断点恢复
+- **熔断降级机制**：工具故障时自动切换替代方案，保证服务可用性
+- **SSE 流式输出**：实时推送 AI 思考过程与工具调用状态
 
-## Tech Stack
+### 🔬 RAG 混合检索
+- **Dense + Sparse 双路召回**：OpenAI Embedding 向量检索 + BM25 稀疏检索
+- **RRF (Reciprocal Rank Fusion)** 融合排序
+- **Reranker 重排序**：二次精排提升结果质量
+- **跨语言查询翻译**：中文查询自动翻译为英文，提升英文论文检索效果
+- **递归语义切分**：基于论文结构 (Abstract/Methods/Results...) 的智能分块
+- **LLM 结构化解析**：GPT-4o 解析论文结构，保留章节层级信息
 
-### Frontend
-- Vue 3 (Composition API)
-- Vite
-- Chart.js for visualizations
-- Marked for Markdown rendering
-- KaTeX for LaTeX math formula rendering
-- Highlight.js for code syntax highlighting
+### 📚 论文管理
+- PDF 论文上传与云存储 (MinIO)
+- 上传自动触发向量索引（后台异步）
+- 论文内容问答 (Paper QA)
+- AI 论文分析报告生成
+- 思维导图自动生成 (Markmap)
+- 多论文对比分析
 
-### Backend
-- FastAPI
-- OpenAI API (GPT-4o)
-- OpenAlex API (academic search)
-- SSE (Server-Sent Events)
-- Python 3.9+
+### 🔍 学术文献检索
+- 对接 **OpenAlex** 数据库，覆盖 2.5 亿+ 学术论文
+- 多维度筛选：年份、引用数、开放获取状态等
+- AI 摘要生成（中/英文）
+- 引用导出：BibTeX / RIS / APA / MLA
+- 相关论文推荐
 
-### Infrastructure
-- **Milvus 2.3.3** - 向量数据库，用于语义搜索
-- **Attu** - Milvus 可视化管理界面
-- **MinIO** - 对象存储服务
-- **etcd** - 分布式配置存储
+### 🔐 用户系统
+- JWT 认证与授权
+- 路由守卫保护
+- 用户数据隔离
 
-## Quick Start
+## 🏗️ 系统架构
 
-### Prerequisites
-- Node.js 16+
-- Python 3.9+
-- OpenAI API key
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Frontend (Vue 3 + Vite)                         │
+│                        localhost:5173                               │
+└────────────────────────────────┬────────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                  Traefik API Gateway (:8080)                        │
+│                    路由 / CORS / 限流 / 重试                         │
+└────────────────────────────────┬────────────────────────────────────┘
+                                 │
+        ┌────────┬────────┬──────┼──────┬────────┬────────┬──────────┐
+        ▼        ▼        ▼      ▼      ▼        ▼        ▼          ▼
+  ┌──────────┐┌───────┐┌──────┐┌─────┐┌──────┐┌──────┐┌───────┐┌────────┐
+  │  Agent   ││ Auth  ││ Conv ││Paper││Vector││ Lit  ││Mindmap││Analysis│
+  │  :8000   ││ :8001 ││ :8002││:8003││:8004 ││:8005 ││ :8007 ││ :8008  │
+  └──────────┘└───────┘└──────┘└─────┘└──────┘└──────┘└───────┘└────────┘
+        │         │        │      │       │        │       │         │
+        └─────────┴────────┴──────┼───────┴────────┴───────┴─────────┘
+                                  │
+        ┌─────────────┬───────────┼───────────┬──────────────┐
+        ▼             ▼           ▼           ▼              ▼
+  ┌──────────┐  ┌──────────┐ ┌────────┐ ┌─────────┐  ┌──────────┐
+  │  MySQL   │  │  MinIO   │ │ Milvus │ │  Redis  │  │ RabbitMQ │
+  │  :3306   │  │  :9000   │ │ :19530 │ │  :6379  │  │  :5672   │
+  └──────────┘  └──────────┘ └────────┘ └─────────┘  └──────────┘
+```
 
-### Backend Setup
+### 微服务清单
 
-1. **Navigate to backend:**
-   ```bash
-   cd backend
-   ```
+| 服务 | 端口 | 职责 | 核心技术 |
+|------|------|------|----------|
+| **agent-service** | 8000 | AI 智能体核心，工具编排与对话 | LangGraph, OpenAI, LangChain |
+| **auth-service** | 8001 | 用户注册、登录、JWT 签发 | JWT, bcrypt, MySQL |
+| **conversation-service** | 8002 | 对话历史 CRUD | MySQL |
+| **paper-storage-service** | 8003 | 论文上传、存储、结构化解析 | MinIO, pdfplumber, GPT-4o |
+| **vector-search-service** | 8004 | 语义搜索、Paper QA、向量索引 | Milvus, OpenAI Embedding, BM25 |
+| **literature-search-service** | 8005 | 学术文献检索与摘要 | OpenAlex API, OpenAI |
+| **mindmap-service** | 8007 | 论文思维导图生成 | MinIO, OpenAI |
+| **analysis-service** | 8008 | 论文分析报告、多论文对比 | MinIO, OpenAI |
 
-2. **Create virtual environment:**
-   ```bash
-   python -m venv venv
-   
-   # Windows
-   .venv\Scripts\activate
-   
-   # Linux/Mac
-   source venv/bin/activate
-   ```
+### 基础设施
 
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+| 组件 | 端口 | 用途 |
+|------|------|------|
+| **Traefik** | 8080 / 8081 | API 网关 & Dashboard |
+| **Consul** | 8500 | 服务注册与发现、配置中心 |
+| **MySQL 8.0** | 3306 | 用户、对话、论文元数据存储 |
+| **MinIO** | 9000 / 9001 | PDF 文件对象存储 |
+| **Milvus 2.3.3** | 19530 | 向量数据库 |
+| **Attu** | 9002 | Milvus 可视化管理 |
+| **Redis 7** | 6379 | Agent 记忆系统、缓存 |
+| **RabbitMQ** | 5672 / 15672 | 消息队列（事件驱动） |
+| **etcd** | - | Milvus 元数据存储 |
 
-4. **Create `.env` file:**
-   ```bash
-   # backend/.env
-   OPENAI_API_KEY=your_openai_api_key_here
-   OPENAI_MODEL=gpt-4o
-   CONTACT_EMAIL=your_email@example.com  # Optional, for OpenAlex
-   HOST=0.0.0.0
-   PORT=8000
-   ALLOWED_ORIGINS=http://localhost:5173
-   ```
+## 🛠️ 技术栈
 
-5. **Run backend:**
-   ```bash
-   python run.py
-   ```
+### 前端
+| 技术 | 用途 |
+|------|------|
+| Vue 3 (Composition API) | 前端框架 |
+| Vite 5 | 构建工具 |
+| Vue Router 4 | 路由管理 |
+| Axios | HTTP 客户端 |
+| ECharts / Chart.js | 数据可视化 |
+| Markmap | 思维导图渲染 |
+| KaTeX | LaTeX 数学公式渲染 |
+| Marked + Highlight.js | Markdown 渲染 & 代码高亮 |
 
-   Backend will be available at: `http://localhost:8000`
+### 后端
+| 技术 | 用途 |
+|------|------|
+| FastAPI | Web 框架 (全部微服务) |
+| LangGraph + LangChain | AI Agent 编排 |
+| OpenAI API (GPT-4o) | LLM 推理 & Embedding |
+| SQLAlchemy | ORM |
+| pymilvus | Milvus 向量数据库客户端 |
+| pdfplumber | PDF 文本提取 |
+| python-jose | JWT 处理 |
+| SSE-Starlette | Server-Sent Events 流式输出 |
 
-### Frontend Setup
+## 🚀 快速开始
 
-1. **Navigate to frontend:**
-   ```bash
-   cd frontend
-   ```
+### 前置要求
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+- **Docker** & **Docker Compose** (v2.0+)
+- **Node.js** 16+
+- **Python** 3.9+
+- **OpenAI API Key**
 
-3. **Create `.env` file:**
-   ```bash
-   # frontend/.env
-   VITE_API_BASE_URL=http://localhost:8000
-   ```
+### 1. 克隆项目
 
-4. **Run frontend:**
-   ```bash
-   npm run dev
-   ```
+```bash
+git clone https://github.com/your-username/ResearchGO.git
+cd ResearchGO
+```
 
-   Frontend will be available at: `http://localhost:5173`
+### 2. 配置环境变量
 
-### Milvus 向量数据库设置
+```bash
+cp env.example .env
+```
 
-1. **启动 Milvus 和相关服务：**
-   ```bash
-   docker-compose up -d
-   ```
+编辑 `.env` 文件，填写必要配置：
 
-2. **验证服务状态：**
-   ```bash
-   docker-compose ps
-   ```
-   
-   确保以下服务都在运行：
-   - ✅ Milvus (端口 19530, 9091)
-   - ✅ Attu (端口 9002) - 可视化管理界面
-   - ✅ etcd (健康状态)
-   - ✅ MinIO (端口 9000, 9001)
+```env
+# 必填 - OpenAI
+OPENAI_API_KEY=sk-your-openai-api-key
+OPENAI_BASE_URL=https://api.openai.com/v1    # 如使用代理可修改
 
-3. **访问 Attu 管理界面：**
-   - 打开浏览器访问：`http://localhost:9002`
-   - 连接地址输入：`localhost:19530`
-   - 点击 "Connect" 连接
+# 必填 - 安全密钥
+SECRET_KEY=your-super-secret-key
 
-4. **使用 Python 连接：**
-   ```python
-   from app.services.milvus_service import milvus_service
-   
-   # 连接到 Milvus
-   milvus_service.connect()
-   
-   # 创建集合
-   milvus_service.create_collection(dim=768)
-   
-   # 创建索引
-   milvus_service.create_index()
-   ```
+# 可选 - 数据库（有默认值）
+MYSQL_ROOT_PASSWORD=rootpassword123
+MYSQL_DATABASE=researchgo
+MYSQL_USER=researchgo_user
+MYSQL_PASSWORD=researchgo123
 
-5. **详细使用指南：**
-   - 📖 [Milvus 使用指南](docs/MILVUS_USAGE.md) - 完整的使用教程
-   - 📖 [Milvus 部署文档](docs/MILVUS_SETUP.md) - 部署和配置说明
-   - 📖 [快速开始](docs/QUICK_START.md) - 快速入门指南
+# 可选 - MinIO（有默认值）
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=minioadmin123
 
-## Usage
+# 可选 - RabbitMQ（有默认值）
+RABBITMQ_USER=admin
+RABBITMQ_PASSWORD=admin123
+```
 
-### Dashboard
-Visit `http://localhost:5173/` to see:
-- Photon usage statistics
-- Knowledge entropy visualization
-- Daily research recommendations
-- Field progress updates
-- Cognitive architecture radar chart
-- Neural imprint trends
-- Background synthesis queue
+### 3. 启动后端服务（Docker Compose）
 
-### Milvus Manager
-Visit `http://localhost:5173/milvus` to:
-- View all vector collections
-- Create and delete collections  
-- Load/Release collections from memory
-- Monitor collection statistics
-- View collection details and schemas
+```bash
+docker-compose up -d
+```
 
-### Chat Assistant
-Visit `http://localhost:5173/chat` to:
-- Ask questions about research topics
-- Get explanations of complex concepts
-- Discuss papers and methodologies
-- Receive formatted responses with code highlighting
+等待所有服务启动完成，检查状态：
 
-### Literature Search
-Visit `http://localhost:5173/literature` to:
-- Search 250M+ academic papers from OpenAlex
-- Filter by year, citations, open access status
-- View detailed paper information and abstracts
-- Generate AI-powered summaries in Chinese or English
-- Export citations in BibTeX, RIS, APA, or MLA format
-- Discover related papers
-- Discuss papers directly with AI assistant
+```bash
+docker-compose ps
+```
 
-## Project Structure
+确认以下服务均为 `running` 状态：
+
+| 服务 | 容器名 | 说明 |
+|------|--------|------|
+| ✅ Traefik | researchgo-traefik | API 网关 |
+| ✅ Consul | researchgo-consul | 服务注册 |
+| ✅ Agent | researchgo-agent | AI 智能体 |
+| ✅ Auth | researchgo-auth | 认证服务 |
+| ✅ Conversation | researchgo-conversation | 对话服务 |
+| ✅ Paper | researchgo-paper | 论文存储 |
+| ✅ Vector | researchgo-vector | 向量搜索 |
+| ✅ Literature | researchgo-literature | 文献检索 |
+| ✅ Mindmap | researchgo-mindmap | 思维导图 |
+| ✅ Analysis | researchgo-analysis | 论文分析 |
+| ✅ MySQL | researchgo-mysql | 数据库 |
+| ✅ MinIO | researchgo-minio | 对象存储 |
+| ✅ Milvus | researchgo-milvus | 向量数据库 |
+| ✅ Redis | researchgo-redis | 缓存 |
+| ✅ RabbitMQ | researchgo-rabbitmq | 消息队列 |
+
+### 4. 启动前端
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### 5. 访问应用
+
+| 地址 | 说明 |
+|------|------|
+| http://localhost:5173 | 前端应用 |
+| http://localhost:8080 | API 网关入口 |
+| http://localhost:8081 | Traefik Dashboard |
+| http://localhost:8500 | Consul UI |
+| http://localhost:9001 | MinIO Console |
+| http://localhost:9002 | Attu (Milvus 管理) |
+| http://localhost:15672 | RabbitMQ 管理界面 |
+
+> 默认管理员账号：`admin` / `admin123`
+
+## 📖 功能页面
+
+| 路由 | 页面 | 功能说明 |
+|------|------|----------|
+| `/` | Landing | 项目落地页 |
+| `/login` | Login | 用户登录/注册 |
+| `/dashboard` | Dashboard | 研究数据看板，活动统计与可视化 |
+| `/chat` | Chat | AI 对话助手，支持工具调用、流式输出 |
+| `/literature` | Literature Search | 学术文献检索，AI 摘要，引用导出 |
+| `/library` | Paper Library | 个人论文库，上传 PDF、语义搜索、问答 |
+| `/review` | Paper Review | 论文阅读与分析，思维导图、分析报告 |
+| `/milvus` | Milvus Manager | 向量集合管理（加载/释放/统计） |
+
+## 📁 项目结构
 
 ```
 ResearchGO/
-├── frontend/
+├── frontend/                        # 前端应用 (Vue 3)
 │   ├── src/
-│   │   ├── views/
-│   │   │   ├── Home.vue              # Dashboard
-│   │   │   ├── Chat.vue              # Chat interface
-│   │   │   └── LiteratureSearch.vue  # Literature search
-│   │   ├── api/
-│   │   │   └── literature.js         # Literature API client
-│   │   ├── router/
-│   │   │   └── index.js              # Routes
-│   │   ├── config.js                 # API configuration
-│   │   ├── style.css                 # Global styles
-│   │   └── App.vue                   # Main layout
+│   │   ├── views/                   # 页面组件
+│   │   │   ├── Landing.vue          # 落地页
+│   │   │   ├── Login.vue            # 登录页
+│   │   │   ├── Home.vue             # Dashboard
+│   │   │   ├── Chat.vue             # AI 对话
+│   │   │   ├── LiteratureSearch.vue # 文献检索
+│   │   │   ├── PaperLibrary.vue     # 论文库
+│   │   │   ├── PaperReview.vue      # 论文阅读
+│   │   │   └── MilvusManager.vue    # 向量管理
+│   │   ├── api/                     # API 客户端层
+│   │   ├── router/                  # 路由配置
+│   │   ├── composables/             # 组合式函数
+│   │   ├── App.vue                  # 根组件
+│   │   └── config.js                # 全局配置
 │   ├── package.json
 │   └── vite.config.js
 │
 ├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── chat.py               # Chat endpoints
-│   │   │   └── literature.py         # Literature endpoints
-│   │   ├── services/
-│   │   │   ├── openai_service.py     # OpenAI integration
-│   │   │   └── openalex_service.py   # OpenAlex integration
-│   │   ├── models/
-│   │   │   ├── chat.py               # Chat models
-│   │   │   └── literature.py         # Literature models
-│   │   └── main.py               # FastAPI app
-│   ├── requirements.txt
-│   ├── run.py
-│   └── README.md
+│   ├── services/
+│   │   ├── agent-service/           # AI 智能体服务
+│   │   │   ├── app/
+│   │   │   │   ├── agent/           # LangGraph Agent (状态图、流式处理)
+│   │   │   │   ├── tools/           # 工具集 (文献/论文/向量/分析)
+│   │   │   │   ├── memory/          # 三层记忆系统
+│   │   │   │   └── utils/           # 熔断器、认证客户端
+│   │   │   └── Dockerfile
+│   │   ├── auth-service/            # 认证服务
+│   │   ├── conversation-service/    # 对话管理服务
+│   │   ├── paper-storage-service/   # 论文存储服务
+│   │   │   ├── app/utils/
+│   │   │   │   ├── paper_structure_parser.py    # LLM 结构解析器
+│   │   │   │   └── recursive_semantic_chunker.py # 递归语义切分器
+│   │   │   └── Dockerfile
+│   │   ├── vector-search-service/   # 向量搜索服务
+│   │   │   ├── app/services/
+│   │   │   │   ├── hybrid_search_service.py     # 混合检索 (Dense+BM25+RRF+Reranker)
+│   │   │   │   ├── milvus_service.py            # Milvus 客户端
+│   │   │   │   ├── bm25_service.py              # BM25 稀疏检索
+│   │   │   │   └── reranker_service.py          # 重排序
+│   │   │   └── Dockerfile
+│   │   ├── literature-search-service/  # 文献检索服务
+│   │   ├── mindmap-service/            # 思维导图服务
+│   │   └── analysis-service/           # 论文分析服务
+│   ├── shared/                      # 共享模块 (Consul 注册)
+│   └── init.sql                     # 数据库初始化脚本
 │
-└── README.md                      # This file
+├── traefik/                         # API 网关配置
+│   ├── traefik.yml                  # 静态配置
+│   └── dynamic/services.yml         # 路由规则 & 中间件
+│
+├── docker-compose.yml               # 全量服务编排
+├── env.example                      # 环境变量模板
+└── docs/                            # 文档
+    ├── RAG_SYSTEM.md                # RAG 系统设计文档
+    └── SERVICE_DISCOVERY.md         # 服务发现文档
 ```
 
-## API Documentation
+## 🔌 API 路由
 
-Once the backend is running, visit:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+所有 API 通过 Traefik 网关统一代理 (`http://localhost:8080`)：
 
-## Environment Variables
+| 路径前缀 | 目标服务 | 说明 |
+|----------|---------|------|
+| `/api/agent/*` | agent-service | AI 对话 (SSE 流式) |
+| `/api/auth/*` | auth-service | 注册/登录/认证 |
+| `/api/conversations/*` | conversation-service | 对话 CRUD |
+| `/api/papers/*` | paper-storage-service | 论文上传/管理 |
+| `/api/vector/*` | vector-search-service | 语义搜索/Paper QA |
+| `/api/milvus/*` | vector-search-service | 向量集合管理 |
+| `/api/literature/*` | literature-search-service | 文献检索 |
+| `/api/mindmap/*` | mindmap-service | 思维导图生成 |
+| `/api/analysis/*` | analysis-service | 论文分析/对比 |
 
-### Backend (.env)
-```env
-OPENAI_API_KEY=sk-...           # Required: Your OpenAI API key
-OPENAI_MODEL=gpt-4o             # Optional: Model to use
-HOST=0.0.0.0                     # Optional: Server host
-PORT=8000                        # Optional: Server port
-ALLOWED_ORIGINS=http://localhost:5173 # Optional: CORS origins
+各服务的 Swagger 文档可通过 `http://localhost:{port}/docs` 访问。
+
+## ⚙️ 环境变量
+
+| 变量 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `OPENAI_API_KEY` | ✅ | - | OpenAI API 密钥 |
+| `OPENAI_BASE_URL` | ❌ | `https://api.openai.com/v1` | OpenAI API 地址（支持代理） |
+| `OPENAI_MODEL` | ❌ | `gpt-4o` | 默认模型 |
+| `SECRET_KEY` | ✅ | - | JWT 签名密钥 |
+| `MYSQL_ROOT_PASSWORD` | ❌ | `rootpassword123` | MySQL root 密码 |
+| `MYSQL_DATABASE` | ❌ | `researchgo` | 数据库名 |
+| `MYSQL_USER` | ❌ | `researchgo_user` | 数据库用户 |
+| `MYSQL_PASSWORD` | ❌ | `researchgo123` | 数据库密码 |
+| `MINIO_ROOT_USER` | ❌ | `minioadmin` | MinIO 用户名 |
+| `MINIO_ROOT_PASSWORD` | ❌ | `minioadmin123` | MinIO 密码 |
+| `RABBITMQ_USER` | ❌ | `admin` | RabbitMQ 用户名 |
+| `RABBITMQ_PASSWORD` | ❌ | `admin123` | RabbitMQ 密码 |
+
+## 🔧 本地开发
+
+如果只需要运行单个微服务进行开发调试：
+
+```bash
+# 1. 先启动基础设施
+docker-compose up -d consul mysql minio milvus etcd redis rabbitmq attu
+
+# 2. 进入目标服务目录
+cd backend/services/agent-service
+
+# 3. 创建虚拟环境
+python -m venv venv
+# Windows
+.\venv\Scripts\activate
+# Linux/Mac
+source venv/bin/activate
+
+# 4. 安装依赖
+pip install -r requirements.txt
+
+# 5. 启动服务
+python run.py
 ```
 
-### Frontend (.env)
-```env
-VITE_API_BASE_URL=http://localhost:8000 # Backend API URL
-```
+### 前端开发
 
-## Development
-
-### Frontend Development
 ```bash
 cd frontend
-npm run dev      # Start dev server
-npm run build    # Build for production
-npm run preview  # Preview production build
+npm install
+npm run dev       # 启动开发服务器 (HMR)
+npm run build     # 生产构建
+npm run preview   # 预览生产构建
 ```
 
-### Backend Development
-```bash
-cd backend
-python run.py    # Start with auto-reload
-```
+## 🐛 常见问题
 
-## Troubleshooting
+### 服务无法启动
+1. 确认 Docker 资源分配充足（建议 ≥ 8GB 内存）
+2. 检查 `.env` 文件中 `OPENAI_API_KEY` 是否已配置
+3. 执行 `docker-compose logs <service-name>` 查看错误日志
 
-### Chat not working
-1. Ensure backend is running: `http://localhost:8000/health`
-2. Check OpenAI API key is set in `backend/.env`
-3. Verify CORS origins include your frontend URL
-4. Check browser console for errors
+### AI 对话无响应
+1. 访问 `http://localhost:8080/api/agent/health` 检查 Agent 服务状态
+2. 确认 OpenAI API Key 有效且有余额
+3. 如使用代理，检查 `OPENAI_BASE_URL` 是否正确
 
-### Connection errors
-1. Verify backend is running on port 8000
-2. Check `VITE_API_BASE_URL` in frontend `.env`
-3. Ensure no firewall blocking connections
+### 向量搜索不工作
+1. 确认 Milvus 服务健康：`http://localhost:9091/healthz`
+2. 访问 Attu (`http://localhost:9002`) 检查集合是否已创建并加载
+3. 论文上传后需等待后台索引完成
 
-### OpenAI API errors
-1. Verify API key is valid
-2. Check you have sufficient credits
-3. Ensure model name is correct
+### 数据库连接失败
+1. 确认 MySQL 容器健康：`docker-compose ps mysql`
+2. 检查 `init.sql` 是否正确执行：`docker-compose logs mysql`
 
-## License
+## 📄 License
 
 MIT
 
-## Contributing
+## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
+欢迎贡献！请提交 Pull Request 或创建 Issue。
