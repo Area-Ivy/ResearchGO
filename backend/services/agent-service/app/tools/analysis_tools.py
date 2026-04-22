@@ -1,53 +1,69 @@
 """
-Analysis Tools - 论文分析相关工具
+Analysis Tools - paper analysis and mindmap generation.
 """
 from typing import Optional, List
+import logging
+
 from .base import BaseTool, ToolResult
 from ..config import ANALYSIS_SERVICE_URL, MINDMAP_SERVICE_URL
-import logging
 
 logger = logging.getLogger(__name__)
 
 
+def _resolve_paper_ref(paper_id: Optional[str], paper_name: Optional[str]) -> Optional[str]:
+    """Prefer stable paper_id/object_name, but keep paper_name as fallback for compatibility."""
+    return paper_id or paper_name
+
+
 class AnalyzePaperTool(BaseTool):
-    """分析论文"""
-    
+    """Analyze an uploaded paper."""
+
     name = "analyze_paper"
-    description = """对论文进行深度分析，生成结构化分析报告。
-包括研究问题、方法、贡献、局限性等。
-需要论文已上传到用户论文库。
-这是一个耗时操作，可能需要1-2分钟。"""
-    
+    description = "Analyze a user paper and return a structured summary."
+
     parameters = {
         "type": "object",
         "properties": {
+            "paper_id": {
+                "type": "string",
+                "description": "Preferred stable paper identifier returned by upload/list APIs"
+            },
             "paper_name": {
                 "type": "string",
-                "description": "论文文件名（如 xxx.pdf）"
+                "description": "Legacy fallback paper reference"
             }
-        },
-        "required": ["paper_name"]
+        }
     }
-    
-    async def execute(self, paper_name: str, token: str = None, **kwargs) -> ToolResult:
+
+    async def execute(
+        self,
+        paper_id: Optional[str] = None,
+        paper_name: Optional[str] = None,
+        token: str = None,
+        **kwargs
+    ) -> ToolResult:
+        object_name = _resolve_paper_ref(paper_id, paper_name)
+        if not object_name:
+            return ToolResult(success=False, error="paper_id is required for paper analysis")
+
         try:
             headers = {}
             if token:
                 headers["Authorization"] = f"Bearer {token}"
-            
+
             response = await self.http_client.post(
                 f"{ANALYSIS_SERVICE_URL}/api/analysis/analyze",
-                json={"paper_name": paper_name},
+                json={"object_name": object_name},
                 headers=headers,
-                timeout=120.0  # 分析可能需要较长时间
+                timeout=120.0
             )
             response.raise_for_status()
             data = response.json()
-            
+
             return ToolResult(
                 success=True,
                 data={
-                    "paper_name": paper_name,
+                    "paper_id": object_name,
                     "analysis": data.get("analysis")
                 }
             )
@@ -57,45 +73,56 @@ class AnalyzePaperTool(BaseTool):
 
 
 class GenerateMindmapTool(BaseTool):
-    """生成思维导图"""
-    
+    """Generate a mindmap from an uploaded paper."""
+
     name = "generate_mindmap"
-    description = """为论文生成思维导图，可视化论文结构和关键概念。
-返回思维导图数据，可在前端渲染展示。
-这是一个耗时操作，可能需要30秒-1分钟。"""
-    
+    description = "Generate a mindmap for a user paper."
+
     parameters = {
         "type": "object",
         "properties": {
+            "paper_id": {
+                "type": "string",
+                "description": "Preferred stable paper identifier returned by upload/list APIs"
+            },
             "paper_name": {
                 "type": "string",
-                "description": "论文文件名（如 xxx.pdf）"
+                "description": "Legacy fallback paper reference"
             }
-        },
-        "required": ["paper_name"]
+        }
     }
-    
-    async def execute(self, paper_name: str, token: str = None, **kwargs) -> ToolResult:
+
+    async def execute(
+        self,
+        paper_id: Optional[str] = None,
+        paper_name: Optional[str] = None,
+        token: str = None,
+        **kwargs
+    ) -> ToolResult:
+        object_name = _resolve_paper_ref(paper_id, paper_name)
+        if not object_name:
+            return ToolResult(success=False, error="paper_id is required for mindmap generation")
+
         try:
             headers = {}
             if token:
                 headers["Authorization"] = f"Bearer {token}"
-            
+
             response = await self.http_client.post(
                 f"{MINDMAP_SERVICE_URL}/api/mindmap/generate",
-                json={"paper_name": paper_name},
+                json={"object_name": object_name},
                 headers=headers,
                 timeout=90.0
             )
             response.raise_for_status()
             data = response.json()
-            
+
             return ToolResult(
                 success=True,
                 data={
-                    "paper_name": paper_name,
+                    "paper_id": object_name,
                     "mindmap": data.get("mindmap"),
-                    "message": "思维导图已生成，可在前端查看"
+                    "message": "Mindmap generated successfully."
                 }
             )
         except Exception as e:
@@ -104,20 +131,18 @@ class GenerateMindmapTool(BaseTool):
 
 
 class ComparePapersTool(BaseTool):
-    """对比论文"""
-    
+    """Compare multiple papers."""
+
     name = "compare_papers"
-    description = """对比多篇论文，分析它们的异同。
-适合文献综述、方法对比等场景。
-需要提供2-5篇论文的文件名。"""
-    
+    description = "Compare multiple papers across selected aspects."
+
     parameters = {
         "type": "object",
         "properties": {
             "paper_names": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "要对比的论文文件名列表（2-5篇）"
+                "description": "Two to five paper names for comparison"
             },
             "aspects": {
                 "type": "array",
@@ -125,12 +150,12 @@ class ComparePapersTool(BaseTool):
                     "type": "string",
                     "enum": ["methodology", "dataset", "results", "contribution"]
                 },
-                "description": "对比维度（可选）"
+                "description": "Optional aspects to compare"
             }
         },
         "required": ["paper_names"]
     }
-    
+
     async def execute(
         self,
         paper_names: List[str],
@@ -140,18 +165,18 @@ class ComparePapersTool(BaseTool):
     ) -> ToolResult:
         try:
             if len(paper_names) < 2:
-                return ToolResult(success=False, error="至少需要2篇论文进行对比")
+                return ToolResult(success=False, error="At least two papers are required for comparison")
             if len(paper_names) > 5:
-                return ToolResult(success=False, error="最多支持5篇论文对比")
-            
+                return ToolResult(success=False, error="At most five papers can be compared at once")
+
             headers = {}
             if token:
                 headers["Authorization"] = f"Bearer {token}"
-            
+
             payload = {"paper_names": paper_names}
             if aspects:
                 payload["aspects"] = aspects
-            
+
             response = await self.http_client.post(
                 f"{ANALYSIS_SERVICE_URL}/api/analysis/compare",
                 json=payload,
@@ -160,7 +185,7 @@ class ComparePapersTool(BaseTool):
             )
             response.raise_for_status()
             data = response.json()
-            
+
             return ToolResult(
                 success=True,
                 data={
@@ -171,4 +196,3 @@ class ComparePapersTool(BaseTool):
         except Exception as e:
             logger.error(f"Compare papers error: {e}")
             return ToolResult(success=False, error=str(e))
-

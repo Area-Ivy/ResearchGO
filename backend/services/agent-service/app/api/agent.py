@@ -17,7 +17,9 @@ from sse_starlette.sse import EventSourceResponse
 import httpx
 
 from ..agent.graph import get_agent
-from ..models.state import ChatRequest, ChatResponse, StreamEvent
+from ..config import USE_MCP_TOOLS
+from ..mcp.client import get_mcp_client
+from ..models.state import ChatRequest, ChatResponse, StreamEvent, AttachedPaper
 from ..utils.auth import get_current_user, get_optional_user
 from ..memory.conversation_cache import get_conversation_cache
 
@@ -34,6 +36,7 @@ class AgentChatRequest(BaseModel):
     message: str
     conversation_id: Optional[Union[str, int]] = None
     stream: bool = True
+    attached_papers: List[AttachedPaper] = []
 
 
 class AgentChatResponse(BaseModel):
@@ -42,6 +45,28 @@ class AgentChatResponse(BaseModel):
     conversation_id: Optional[str] = None
     thoughts: list = []
     tool_calls: list = []
+
+
+def _extract_text_payload(payload) -> str:
+    """Best-effort extract plain text from streamed event payloads."""
+    if payload is None:
+        return ""
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("content", "text", "answer", "message"):
+            value = payload.get(key)
+            if isinstance(value, str):
+                return value
+        return ""
+    if isinstance(payload, list):
+        parts: List[str] = []
+        for item in payload:
+            text = _extract_text_payload(item)
+            if text:
+                parts.append(text)
+        return "".join(parts)
+    return str(payload)
 
 
 def generate_title_from_message(message: str, max_length: int = 30) -> str:
@@ -97,6 +122,7 @@ async def agent_chat(
         # 流式响应
         async def event_generator():
             final_answer = ""
+            streamed_answer_chunks: List[str] = []
             
             try:
                 # 发送 conversation_id（如果是新创建的）
@@ -118,16 +144,27 @@ async def agent_chat(
                     user_id=user_id,
                     token=token,
                     conversation_history=conversation_history,
-                    conversation_id=str(conversation_id) if conversation_id else None
+                    conversation_id=str(conversation_id) if conversation_id else None,
+                    attached_papers=[paper.model_dump() for paper in request.attached_papers]
                 ):
                     # 记录最终答案
                     if event.event == "answer":
-                        final_answer = event.data
+                        final_answer = _extract_text_payload(event.data)
+                    elif event.event == "token" and event.data:
+                        token_chunk = _extract_text_payload(event.data)
+                        if token_chunk:
+                            streamed_answer_chunks.append(token_chunk)
+                    elif event.event == "answer_end" and not final_answer and streamed_answer_chunks:
+                        final_answer = "".join(streamed_answer_chunks)
                     
                     yield {
                         "event": event.event,
                         "data": json.dumps(event.data, ensure_ascii=False) if event.data else ""
                     }
+
+                if not final_answer and streamed_answer_chunks:
+                    final_answer = "".join(streamed_answer_chunks)
+                final_answer = final_answer.strip()
                 
                 # 追加 AI 回复到缓存（同步快速 + 异步持久化）
                 if token and conversation_id and final_answer:
@@ -159,7 +196,8 @@ async def agent_chat(
                 user_id=user_id,
                 token=token,
                 conversation_history=conversation_history,
-                conversation_id=str(conversation_id) if conversation_id else None
+                conversation_id=str(conversation_id) if conversation_id else None,
+                attached_papers=[paper.model_dump() for paper in request.attached_papers]
             )
             
             final_answer = result.get("answer", "")
@@ -298,11 +336,18 @@ async def list_tools():
     
     tools = []
     for tool in tool_registry.get_all():
-        tools.append({
-            "name": tool.name,
-            "description": tool.description,
-            "parameters": tool.parameters
-        })
+        if isinstance(tool, dict):
+            tools.append({
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool.get("inputSchema", {"type": "object", "properties": {}})
+            })
+        else:
+            tools.append({
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters
+            })
     
     return {"tools": tools}
 
@@ -321,13 +366,22 @@ async def execute_tool(
     """
     from ..tools.registry import tool_registry
     
-    tool = tool_registry.get(tool_name)
-    if not tool:
-        raise HTTPException(status_code=404, detail=f"Tool {tool_name} not found")
-    
     token = req.headers.get("Authorization", "").replace("Bearer ", "") if req.headers.get("Authorization") else None
     
     try:
+        if USE_MCP_TOOLS:
+            result = await get_mcp_client().call_tool(tool_name, arguments, token=token)
+            structured = result.get("structuredContent", {})
+            return {
+                "success": not result.get("isError", False),
+                "data": structured if not result.get("isError", False) else None,
+                "error": structured.get("error") if result.get("isError", False) else None,
+                "duration_ms": 0
+            }
+
+        tool = tool_registry.get(tool_name)
+        if not tool:
+            raise HTTPException(status_code=404, detail=f"Tool {tool_name} not found")
         if token:
             arguments["token"] = token
         result = await tool(**arguments)
@@ -409,4 +463,3 @@ async def reset_circuit_breaker(
         "message": f"Circuit breaker for {tool_name} has been reset",
         "new_status": tool.breaker.get_status()
     }
-

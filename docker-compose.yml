@@ -220,6 +220,8 @@ services:
       - VECTOR_SEARCH_SERVICE_URL=http://vector-search-service:8004
       - LITERATURE_SERVICE_URL=http://literature-search-service:8005
       - ANALYSIS_SERVICE_URL=http://analysis-service:8008
+      - MCP_SERVER_URL=http://research-mcp-server:8010
+      - USE_MCP_TOOLS=true
       # Redis for memory system
       - REDIS_URL=redis://redis:6379/0
       # Memory system configuration
@@ -243,6 +245,44 @@ services:
       vector-search-service:
         condition: service_started
       literature-search-service:
+        condition: service_started
+      research-mcp-server:
+        condition: service_started
+
+  research-mcp-server:
+    build:
+      context: ./backend/services/research-mcp-server
+      dockerfile: Dockerfile
+    container_name: researchgo-mcp
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - PAPER_STORAGE_SERVICE_URL=http://paper-storage-service:8003
+      - VECTOR_SEARCH_SERVICE_URL=http://vector-search-service:8004
+      - LITERATURE_SERVICE_URL=http://literature-search-service:8005
+      - MINDMAP_SERVICE_URL=http://mindmap-service:8007
+      - ANALYSIS_SERVICE_URL=http://analysis-service:8008
+      - CONSUL_HOST=consul
+      - SERVICE_NAME=research-mcp-server
+      - SERVICE_PORT=8010
+    networks:
+      - researchgo-network
+    depends_on:
+      consul:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      paper-storage-service:
+        condition: service_started
+      vector-search-service:
+        condition: service_started
+      literature-search-service:
+        condition: service_started
+      mindmap-service:
+        condition: service_started
+      analysis-service:
         condition: service_started
 
   # 认证服务

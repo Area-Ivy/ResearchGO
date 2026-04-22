@@ -76,9 +76,43 @@
           <p class="page-subtitle">Ask me anything about your research</p>
         </div>
         <div class="header-actions">
+          <input
+            ref="paperUploadInput"
+            type="file"
+            accept=".pdf"
+            class="paper-upload-input"
+            @change="handlePaperUpload"
+          >
+          <button
+            class="header-action-btn"
+            :disabled="isUploadingPaper"
+            @click="triggerPaperUpload"
+          >
+            {{ isUploadingPaper ? 'Uploading...' : 'Upload Paper' }}
+          </button>
+          <button
+            class="header-action-btn secondary"
+            :disabled="paperLibraryLoading"
+            @click="openPaperLibrary"
+          >
+            {{ paperLibraryLoading ? 'Loading...' : 'Select Paper' }}
+          </button>
           <!-- 预留操作按钮位置 -->
         </div>
       </div>
+
+    <div v-if="attachedPapers.length > 0" class="attached-papers-bar">
+      <div class="attached-papers-label">Attached papers</div>
+      <div class="attached-papers-list">
+        <div v-for="paper in attachedPapers" :key="paper.paper_id" class="attached-paper-chip">
+          <div class="attached-paper-meta">
+            <span class="attached-paper-name">{{ paper.name }}</span>
+            <span class="attached-paper-id">{{ paper.paper_id }}</span>
+          </div>
+          <button class="chip-remove-btn" @click="removeAttachedPaper(paper.paper_id)">Remove</button>
+        </div>
+      </div>
+    </div>
 
     <div class="chat-messages" ref="messagesContainer">
       <div v-if="messages.length === 0" class="empty-state">
@@ -140,6 +174,23 @@
 
     <div class="chat-input-container">
       <div class="chat-input-wrapper">
+        <div class="input-plus-menu">
+          <button
+            class="plus-btn"
+            :disabled="isUploadingPaper || paperLibraryLoading"
+            @click="showInputActions = !showInputActions"
+          >
+            +
+          </button>
+          <div v-if="showInputActions" class="input-actions-popover">
+            <button class="input-action-item" @click="triggerPaperUploadAndClose">
+              {{ isUploadingPaper ? 'Uploading...' : 'Upload Paper' }}
+            </button>
+            <button class="input-action-item" @click="openPaperLibraryFromInput">
+              {{ paperLibraryLoading ? 'Loading...' : 'Select Paper' }}
+            </button>
+          </div>
+        </div>
         <textarea 
           v-model="inputMessage" 
           @keydown.enter.exact.prevent="sendMessage"
@@ -163,6 +214,39 @@
       </div>
     </div>
 
+    </div>
+  </div>
+
+  <div
+    v-if="paperLibraryOpen"
+    class="paper-library-overlay"
+    @click.self="paperLibraryOpen = false"
+  >
+    <div class="paper-library-modal">
+      <div class="paper-library-header">
+        <div>
+          <h3>My Papers</h3>
+          <p>Select a paper to attach to this conversation</p>
+        </div>
+        <button class="paper-library-close" @click="paperLibraryOpen = false">Close</button>
+      </div>
+      <div v-if="paperLibraryError" class="paper-library-error">{{ paperLibraryError }}</div>
+      <div v-if="paperLibraryLoading" class="paper-library-empty">Loading papers...</div>
+      <div v-else-if="availablePapers.length === 0" class="paper-library-empty">
+        No uploaded papers yet.
+      </div>
+      <div v-else class="paper-library-list">
+        <button
+          v-for="paper in availablePapers"
+          :key="paper.object_name"
+          class="paper-library-item"
+          @click="attachLibraryPaper(paper)"
+        >
+          <div class="paper-library-title">{{ paper.title || paper.original_name }}</div>
+          <div class="paper-library-subtitle">{{ paper.original_name }}</div>
+          <div class="paper-library-id">{{ paper.object_name }}</div>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -190,6 +274,7 @@ import {
   deleteConversation,
   updateConversation
 } from '../api/conversations'
+import { listPapers, uploadPaper } from '../api/papers'
 
 const route = useRoute()
 
@@ -214,12 +299,21 @@ const inputMessage = ref('')
 const isLoading = ref(false)
 const messagesContainer = ref(null)
 const inputTextarea = ref(null)
+const paperUploadInput = ref(null)
 const error = ref(null)
 
 // 对话管理相关状态
 const conversations = ref([])
 const currentConversation = ref(null)
 const sidebarOpen = ref(false)
+const attachedPapers = ref([])
+const availablePapers = ref([])
+const paperLibraryOpen = ref(false)
+const paperLibraryLoading = ref(false)
+const paperLibraryError = ref('')
+const isUploadingPaper = ref(false)
+const showInputActions = ref(false)
+const ATTACHED_PAPERS_STORAGE_KEY = 'researchgo_chat_attached_papers'
 
 const suggestedPrompts = ref([
   'Explain transformer architecture',
@@ -427,6 +521,142 @@ const renderPapersCards = (papersData) => {
   return html
 }
 
+const normalizeAttachedPaper = (paper) => ({
+  paper_id: paper.paper_id || paper.object_name || paper.id,
+  name: paper.name || paper.title || paper.original_name || paper.paper_id || paper.object_name || 'Untitled paper'
+})
+
+const getAttachedPapersMap = () => {
+  try {
+    return JSON.parse(localStorage.getItem(ATTACHED_PAPERS_STORAGE_KEY) || '{}')
+  } catch (err) {
+    console.error('Failed to parse attached papers cache:', err)
+    return {}
+  }
+}
+
+const saveAttachedPapersForConversation = (conversationId, papers) => {
+  if (!conversationId) return
+  const paperMap = getAttachedPapersMap()
+  paperMap[String(conversationId)] = papers
+  localStorage.setItem(ATTACHED_PAPERS_STORAGE_KEY, JSON.stringify(paperMap))
+}
+
+const loadAttachedPapersForConversation = (conversationId) => {
+  if (!conversationId) {
+    attachedPapers.value = []
+    return
+  }
+  const paperMap = getAttachedPapersMap()
+  attachedPapers.value = (paperMap[String(conversationId)] || []).map(normalizeAttachedPaper)
+}
+
+const removeAttachedPapersForConversation = (conversationId) => {
+  if (!conversationId) return
+  const paperMap = getAttachedPapersMap()
+  delete paperMap[String(conversationId)]
+  localStorage.setItem(ATTACHED_PAPERS_STORAGE_KEY, JSON.stringify(paperMap))
+}
+
+const ensureConversationContext = async () => {
+  if (currentConversation.value?.id) {
+    return currentConversation.value
+  }
+
+  const conv = await createConversation('新对话')
+  currentConversation.value = conv
+  loadAttachedPapersForConversation(conv.id)
+  await loadConversations()
+  return conv
+}
+
+const persistAttachedPapers = () => {
+  if (currentConversation.value?.id) {
+    saveAttachedPapersForConversation(currentConversation.value.id, attachedPapers.value)
+  }
+}
+
+const attachPaperToConversation = async (paper) => {
+  const conversation = await ensureConversationContext()
+  const normalizedPaper = normalizeAttachedPaper(paper)
+
+  if (!normalizedPaper.paper_id) {
+    throw new Error('Missing paper id from upload response')
+  }
+
+  const exists = attachedPapers.value.some(item => item.paper_id === normalizedPaper.paper_id)
+  if (!exists) {
+    attachedPapers.value = [...attachedPapers.value, normalizedPaper]
+    saveAttachedPapersForConversation(conversation.id, attachedPapers.value)
+  }
+}
+
+const triggerPaperUpload = () => {
+  paperUploadInput.value?.click()
+}
+
+const triggerPaperUploadAndClose = () => {
+  showInputActions.value = false
+  triggerPaperUpload()
+}
+
+const loadPaperLibrary = async () => {
+  paperLibraryLoading.value = true
+  paperLibraryError.value = ''
+  try {
+    const data = await listPapers()
+    availablePapers.value = data.papers || []
+  } catch (err) {
+    console.error('Failed to load paper library:', err)
+    paperLibraryError.value = 'Failed to load your paper library.'
+  } finally {
+    paperLibraryLoading.value = false
+  }
+}
+
+const openPaperLibrary = async () => {
+  paperLibraryOpen.value = true
+  await loadPaperLibrary()
+}
+
+const openPaperLibraryFromInput = async () => {
+  showInputActions.value = false
+  await openPaperLibrary()
+}
+
+const attachLibraryPaper = async (paper) => {
+  await attachPaperToConversation(paper)
+  paperLibraryOpen.value = false
+  showInputActions.value = false
+}
+
+const handlePaperUpload = async (event) => {
+  const [file] = Array.from(event.target?.files || [])
+  if (!file) return
+
+  isUploadingPaper.value = true
+  paperLibraryError.value = ''
+
+  try {
+    const uploadedPaper = await uploadPaper(file)
+    await attachPaperToConversation(uploadedPaper)
+    await loadPaperLibrary()
+  } catch (err) {
+    console.error('Failed to upload paper:', err)
+    paperLibraryError.value = err.message || 'Failed to upload paper.'
+  } finally {
+    isUploadingPaper.value = false
+    if (event.target) {
+      event.target.value = ''
+    }
+  }
+}
+
+const removeAttachedPaper = (paperId) => {
+  attachedPapers.value = attachedPapers.value.filter(paper => paper.paper_id !== paperId)
+  persistAttachedPapers()
+}
+
 // ============================================
 // 对话管理函数
 // ============================================
@@ -461,6 +691,8 @@ const createNewChat = async () => {
     const conv = await createConversation('新对话')
     currentConversation.value = conv
     messages.value = []
+    attachedPapers.value = []
+    saveAttachedPapersForConversation(conv.id, [])
     await loadConversations()
     
     // 移动端关闭侧边栏
@@ -494,6 +726,7 @@ const switchConversation = async (conversationId) => {
     
     const conv = await getConversation(conversationId)
     currentConversation.value = conv
+    loadAttachedPapersForConversation(conv.id)
     
     // 转换消息格式
     messages.value = conv.messages.map(msg => ({
@@ -520,11 +753,13 @@ const deleteChat = async (conversationId) => {
   
   try {
     await deleteConversation(conversationId)
+    removeAttachedPapersForConversation(conversationId)
     
     // 如果删除的是当前对话，清空界面
     if (currentConversation.value?.id === conversationId) {
       currentConversation.value = null
       messages.value = []
+      attachedPapers.value = []
     }
     
     await loadConversations()
@@ -664,7 +899,8 @@ const sendMessage = async () => {
       body: JSON.stringify({
         message: userInput,
         conversation_id: currentConversation.value?.id,
-        stream: true
+        stream: true,
+        attached_papers: attachedPapers.value
       })
     })
 
@@ -1174,6 +1410,182 @@ onMounted(async () => {
   align-items: center;
 }
 
+.paper-upload-input {
+  display: none;
+}
+
+.header-action-btn {
+  border: 1px solid var(--border-primary);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.header-action-btn:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+}
+
+.header-action-btn.secondary {
+  background: transparent;
+}
+
+.header-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.attached-papers-bar {
+  margin: 0 32px 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+}
+
+.attached-papers-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+}
+
+.attached-papers-list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.attached-paper-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+}
+
+.attached-paper-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attached-paper-name {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.attached-paper-id {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.chip-remove-btn {
+  border: none;
+  background: transparent;
+  color: var(--accent-danger);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.paper-library-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 24px;
+}
+
+.paper-library-modal {
+  width: min(720px, 100%);
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 20px;
+}
+
+.paper-library-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.paper-library-header h3,
+.paper-library-header p {
+  margin: 0;
+}
+
+.paper-library-header p {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.paper-library-close {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.paper-library-list {
+  padding: 16px 24px 24px;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+}
+
+.paper-library-item {
+  text-align: left;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-card);
+  border-radius: 14px;
+  padding: 16px;
+  cursor: pointer;
+}
+
+.paper-library-item:hover {
+  border-color: var(--accent-primary);
+}
+
+.paper-library-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.paper-library-subtitle,
+.paper-library-id,
+.paper-library-empty,
+.paper-library-error {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.paper-library-subtitle,
+.paper-library-id {
+  margin-top: 6px;
+}
+
+.paper-library-empty,
+.paper-library-error {
+  padding: 24px;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -1473,6 +1885,66 @@ onMounted(async () => {
 .chat-input-wrapper:focus-within {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.input-plus-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.plus-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.plus-btn:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+}
+
+.plus-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.input-actions-popover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  min-width: 180px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-card);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 20;
+}
+
+.input-action-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.input-action-item:hover {
+  background: var(--bg-secondary);
 }
 
 .chat-input {
@@ -2107,4 +2579,3 @@ onMounted(async () => {
   background: var(--accent-secondary);
 }
 </style>
-

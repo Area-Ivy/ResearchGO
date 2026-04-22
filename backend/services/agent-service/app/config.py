@@ -2,6 +2,7 @@
 Agent Service Configuration
 """
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,6 +28,9 @@ LITERATURE_SERVICE_URL = os.getenv("LITERATURE_SERVICE_URL", "http://localhost:8
 CHAT_SERVICE_URL = os.getenv("CHAT_SERVICE_URL", "http://localhost:8006")
 MINDMAP_SERVICE_URL = os.getenv("MINDMAP_SERVICE_URL", "http://localhost:8007")
 ANALYSIS_SERVICE_URL = os.getenv("ANALYSIS_SERVICE_URL", "http://localhost:8008")
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8010")
+USE_MCP_TOOLS = os.getenv("USE_MCP_TOOLS", "true").lower() == "true"
+MCP_TOOLS_CACHE_TTL = int(os.getenv("MCP_TOOLS_CACHE_TTL", "60"))
 
 # Agent Configuration
 MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "10"))
@@ -48,6 +52,10 @@ SUMMARY_MAX_TOKENS = int(os.getenv("SUMMARY_MAX_TOKENS", "500"))  # 摘要最大
 ENABLE_SEMANTIC_MEMORY = os.getenv("ENABLE_SEMANTIC_MEMORY", "true").lower() == "true"
 SEMANTIC_MEMORY_TOP_K = int(os.getenv("SEMANTIC_MEMORY_TOP_K", "5"))  # 检索相关记忆数量
 MEMORY_IMPORTANCE_THRESHOLD = float(os.getenv("MEMORY_IMPORTANCE_THRESHOLD", "0.7"))  # 重要性阈值
+SEMANTIC_MEMORY_DIR = os.getenv(
+    "SEMANTIC_MEMORY_DIR",
+    str(Path(__file__).resolve().parents[1] / "data" / "semantic-memory")
+)
 
 # 4. Redis Checkpointer 配置
 ENABLE_CHECKPOINTER = os.getenv("ENABLE_CHECKPOINTER", "true").lower() == "true"
