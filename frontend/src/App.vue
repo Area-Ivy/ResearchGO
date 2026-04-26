@@ -82,17 +82,6 @@
             <span class="link-text">Paper Review</span>
           </router-link>
           
-          <router-link to="/milvus" class="sidebar-link" @click="closeSidebarOnMobile" :title="sidebarCollapsed ? 'Milvus Manager' : ''">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-              <polyline points="7.5 4.21 12 6.81 16.5 4.21"></polyline>
-              <polyline points="7.5 19.79 7.5 14.6 3 12"></polyline>
-              <polyline points="21 12 16.5 14.6 16.5 19.79"></polyline>
-              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-              <line x1="12" y1="22.08" x2="12" y2="12"></line>
-            </svg>
-            <span class="link-text">Milvus Manager</span>
-          </router-link>
         </nav>
         
         <div class="sidebar-footer">
@@ -228,7 +217,7 @@ onUnmounted(() => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: transparent;
   position: relative;
 }
 
@@ -240,8 +229,8 @@ onUnmounted(() => {
   z-index: 300;
   width: 40px;
   height: 40px;
-  border-radius: 6px;
-  background: rgba(26, 31, 58, 0.8);
+  border-radius: 10px;
+  background: rgba(8, 13, 28, 0.84);
   border: 1px solid var(--border-primary);
   color: var(--text-primary);
   align-items: center;
@@ -251,8 +240,9 @@ onUnmounted(() => {
 }
 
 .mobile-menu-btn:hover {
-  border-color: var(--accent-primary);
+  border-color: var(--border-glow);
   color: var(--accent-primary);
+  box-shadow: var(--glow-primary);
 }
 
 .app-layout {
@@ -262,9 +252,13 @@ onUnmounted(() => {
 }
 
 .sidebar {
-  width: 220px;
-  background: rgba(19, 24, 41, 0.95);
+  width: 232px;
+  background:
+    linear-gradient(180deg, rgba(8, 13, 28, 0.96), rgba(10, 16, 32, 0.92)),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.08), transparent);
   border-right: 1px solid var(--border-primary);
+  box-shadow: 18px 0 50px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(22px);
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -278,7 +272,7 @@ onUnmounted(() => {
 }
 
 .sidebar-collapsed {
-  width: 64px;
+  width: 80px;
 }
 
 .sidebar-header {
@@ -288,7 +282,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   position: relative;
-  background: var(--bg-tertiary);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.86), rgba(30, 41, 59, 0.38));
 }
 
 .logo {
@@ -296,7 +290,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 800;
   background: var(--gradient-primary);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -308,7 +302,7 @@ onUnmounted(() => {
 .logo svg {
   color: var(--accent-primary);
   flex-shrink: 0;
-  filter: drop-shadow(0 0 8px rgba(102, 126, 234, 0.6));
+  filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.52));
 }
 
 .logo-text {
@@ -323,6 +317,27 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.sidebar-collapsed .sidebar-header {
+  padding: 22px 12px;
+  justify-content: center;
+}
+
+.sidebar-collapsed .logo {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.62);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  -webkit-text-fill-color: currentColor;
+}
+
+.sidebar-collapsed .logo svg {
+  width: 24px;
+  height: 24px;
+}
+
 .sidebar-toggle {
   display: flex;
   align-items: center;
@@ -330,7 +345,7 @@ onUnmounted(() => {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: var(--bg-secondary);
+  background: rgba(15, 23, 42, 0.78);
   color: var(--accent-primary);
   border: 1px solid var(--border-primary);
   cursor: pointer;
@@ -345,7 +360,21 @@ onUnmounted(() => {
 }
 
 .sidebar-collapsed .sidebar-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  width: 24px;
+  height: 24px;
   margin-left: 0;
+  opacity: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.sidebar-collapsed:hover .sidebar-toggle,
+.sidebar-collapsed .sidebar-toggle:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .sidebar-close {
@@ -355,7 +384,7 @@ onUnmounted(() => {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: var(--bg-secondary);
+  background: rgba(15, 23, 42, 0.78);
   color: var(--accent-primary);
   border: 1px solid var(--border-primary);
   cursor: pointer;
@@ -371,23 +400,29 @@ onUnmounted(() => {
 
 .sidebar-nav {
   flex: 1;
-  padding: 16px;
+  padding: 18px 14px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   overflow-y: auto;
 }
 
+.sidebar-collapsed .sidebar-nav {
+  align-items: center;
+  padding: 24px 10px;
+  gap: 10px;
+}
+
 .sidebar-link {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-  border-radius: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
   color: var(--text-secondary);
   text-decoration: none;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 650;
   transition: all 0.3s ease;
   position: relative;
   justify-content: flex-start;
@@ -396,20 +431,24 @@ onUnmounted(() => {
 
 .sidebar-collapsed .sidebar-link {
   justify-content: center;
-  padding: 12px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  gap: 0;
+  border-radius: 12px;
 }
 
 .sidebar-link:hover {
-  background: rgba(102, 126, 234, 0.1);
+  background: rgba(56, 189, 248, 0.08);
   color: var(--accent-primary);
-  border-color: var(--border-primary);
+  border-color: rgba(56, 189, 248, 0.24);
   box-shadow: var(--glow-primary);
 }
 
 .sidebar-link.router-link-active {
   background: var(--gradient-primary);
   color: white;
-  box-shadow: var(--glow-primary);
+  box-shadow: 0 14px 30px rgba(56, 189, 248, 0.2);
   border-color: transparent;
 }
 
@@ -431,10 +470,30 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.sidebar-collapsed .sidebar-footer {
+  padding: 14px 10px;
+}
+
+.sidebar-collapsed .user-info {
+  width: 44px;
+  height: 52px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: rgba(8, 13, 28, 0.62);
+}
+
+.sidebar-collapsed .user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
 .sidebar-footer {
   padding: 16px;
   border-top: 1px solid var(--border-primary);
-  background: var(--bg-tertiary);
+  background: rgba(15, 23, 42, 0.58);
   position: relative;
 }
 
@@ -443,8 +502,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  border-radius: 12px;
-  background: var(--bg-secondary);
+  border-radius: 10px;
+  background: rgba(8, 13, 28, 0.68);
   border: 1px solid var(--border-primary);
   transition: all 0.3s ease;
   cursor: pointer;
@@ -458,7 +517,7 @@ onUnmounted(() => {
 .user-avatar {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--gradient-primary);
   display: flex;
   align-items: center;
@@ -503,9 +562,9 @@ onUnmounted(() => {
   left: 16px;
   right: 16px;
   margin-bottom: 8px;
-  background: var(--bg-card);
-  backdrop-filter: blur(10px);
-  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(18px);
+  border-radius: 10px;
   box-shadow: var(--shadow-lg), var(--glow-primary);
   border: 1px solid var(--border-glow);
   overflow: hidden;
@@ -544,8 +603,8 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
+  background: rgba(2, 6, 23, 0.7);
+  backdrop-filter: blur(8px);
   z-index: 190;
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -559,9 +618,9 @@ onUnmounted(() => {
 
 .main {
   flex: 1;
-  margin-left: 220px;
-  max-width: calc(100% - 220px);
-  padding: 32px 24px;
+  margin-left: 232px;
+  max-width: calc(100% - 232px);
+  padding: 34px 28px;
   transition: margin-left 0.2s ease, max-width 0.2s ease;
   height: 100vh;
   overflow-y: auto;
@@ -588,12 +647,12 @@ onUnmounted(() => {
 }
 
 .main-with-sidebar {
-  margin-left: 220px;
+  margin-left: 232px;
 }
 
 .main-collapsed {
-  margin-left: 64px;
-  max-width: calc(100% - 64px);
+  margin-left: 80px;
+  max-width: calc(100% - 80px);
 }
 
 .main-no-sidebar {

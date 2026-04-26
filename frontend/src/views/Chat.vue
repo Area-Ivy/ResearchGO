@@ -116,17 +116,30 @@
 
     <div class="chat-messages" ref="messagesContainer">
       <div v-if="messages.length === 0" class="empty-state">
-        <div class="empty-icon">
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-          </svg>
+        <div class="ai-logo-stage" aria-hidden="true">
+          <div class="logo-halo halo-1"></div>
+          <div class="logo-halo halo-2"></div>
+          <div class="logo-orbit orbit-a"><span></span></div>
+          <div class="logo-orbit orbit-b"><span></span></div>
+          <div class="logo-orbit orbit-c"><span></span></div>
+          <div class="logo-particles">
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div class="empty-icon">
+            <svg width="78" height="78" viewBox="0 0 80 80" fill="none" aria-hidden="true">
+              <circle class="core-ring" cx="40" cy="40" r="23" />
+              <circle class="core-ring core-ring-inner" cx="40" cy="40" r="14" />
+              <path class="core-arc" d="M28 47C31.6 53 38.8 56.2 46 54.6C53.2 53 58.6 46.7 59 39.4" />
+              <path class="core-arc core-arc-secondary" d="M52 33C48.4 27 41.2 23.8 34 25.4C26.8 27 21.4 33.3 21 40.6" />
+              <circle class="core-pulse" cx="40" cy="40" r="6.5" />
+            </svg>
+          </div>
+          <div class="logo-reflection"></div>
         </div>
-        <h3>Start a Conversation</h3>
-        <p>Ask me about research papers, concepts, or anything else you'd like to know.</p>
-        <div class="suggested-prompts">
-          <button v-for="prompt in suggestedPrompts" :key="prompt" class="prompt-btn" @click="sendSuggestedPrompt(prompt)">
-            {{ prompt }}
-          </button>
+        <div class="empty-copy">
+          <div class="empty-kicker">ResearchGO Neural Core</div>
+          <h3>Start a Conversation</h3>
+          <p>Ask me about research papers, concepts, or anything else you'd like to know.</p>
         </div>
       </div>
 
@@ -314,13 +327,6 @@ const paperLibraryError = ref('')
 const isUploadingPaper = ref(false)
 const showInputActions = ref(false)
 const ATTACHED_PAPERS_STORAGE_KEY = 'researchgo_chat_attached_papers'
-
-const suggestedPrompts = ref([
-  'Explain transformer architecture',
-  'Summarize recent advances in LLMs',
-  'How does attention mechanism work?',
-  'Compare CNNs and Vision Transformers'
-])
 
 // Render LaTeX with KaTeX
 const renderLatex = (text) => {
@@ -826,11 +832,6 @@ const formatTime = (dateString) => {
 const formatMessageTime = (dateString) => {
   const date = new Date(dateString)
   return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-}
-
-const sendSuggestedPrompt = (prompt) => {
-  inputMessage.value = prompt
-  sendMessage()
 }
 
 const sendMessage = async () => {
@@ -1366,17 +1367,20 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  max-width: 1600px;
   min-width: 0;
+  background:
+    radial-gradient(circle at 74% 18%, rgba(168, 85, 247, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(5, 8, 23, 0.18), rgba(5, 8, 23, 0.68));
 }
 
 .chat-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 24px 32px 0;
-  margin-bottom: 24px;
-  gap: 24px;
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto 18px;
+  padding: 28px 0 0;
+  gap: 20px;
 }
 
 .mobile-menu-btn {
@@ -1402,12 +1406,19 @@ onMounted(async () => {
 
 .header-section {
   flex: 1;
+  min-width: 0;
 }
 
 .header-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
+  padding: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 14px;
+  background: rgba(8, 13, 28, 0.38);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
 }
 
 .paper-upload-input {
@@ -1416,20 +1427,26 @@ onMounted(async () => {
 
 .header-action-btn {
   border: 1px solid var(--border-primary);
-  background: var(--bg-card);
+  background: rgba(15, 23, 42, 0.7);
   color: var(--text-primary);
   border-radius: 10px;
-  padding: 10px 14px;
+  padding: 10px 16px;
+  min-height: 38px;
   cursor: pointer;
   transition: all 0.2s ease;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .header-action-btn:hover:not(:disabled) {
-  border-color: var(--accent-primary);
+  border-color: var(--border-glow);
+  color: var(--accent-primary);
+  box-shadow: var(--glow-primary);
 }
 
 .header-action-btn.secondary {
-  background: transparent;
+  background: rgba(5, 8, 23, 0.48);
 }
 
 .header-action-btn:disabled {
@@ -1438,7 +1455,8 @@ onMounted(async () => {
 }
 
 .attached-papers-bar {
-  margin: 0 32px 16px;
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto 16px;
   padding: 14px 16px;
   border-radius: 14px;
   background: var(--bg-card);
@@ -1589,80 +1607,324 @@ onMounted(async () => {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 0 32px 24px;
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 0 0 24px;
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
 .empty-state {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 400px;
+  align-self: center;
+  width: min(820px, 100%);
+  min-height: 520px;
+  margin: auto 0;
   text-align: center;
-  padding: 40px;
+  padding: 40px 36px 24px;
+  overflow: hidden;
+}
+
+.empty-state::before {
+  content: '';
+  position: absolute;
+  inset: 8% 0 auto;
+  width: 620px;
+  height: 360px;
+  margin: 0 auto;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(56, 189, 248, 0.2), transparent 34%),
+    radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.13), transparent 52%);
+  filter: blur(4px);
+  animation: coreAura 7s ease-in-out infinite;
+}
+
+.ai-logo-stage {
+  position: relative;
+  z-index: 1;
+  width: 280px;
+  height: 280px;
+  margin-bottom: 22px;
+  display: grid;
+  place-items: center;
+  perspective: 900px;
 }
 
 .empty-icon {
-  width: 120px;
-  height: 120px;
+  position: relative;
+  z-index: 1;
+  width: 128px;
+  height: 128px;
   border-radius: 50%;
-  background: var(--gradient-primary);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 24px;
-  box-shadow: var(--glow-primary);
+  color: #ffffff;
+  box-shadow:
+    0 0 42px rgba(56, 189, 248, 0.18),
+    0 0 96px rgba(129, 140, 248, 0.18);
+  transform: rotateX(10deg) rotateZ(-4deg);
+  animation: logoFloat 5.6s ease-in-out infinite;
+}
+
+.empty-icon::before {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(103, 232, 249, 0.22), rgba(129, 140, 248, 0.12) 42%, transparent 70%);
+  opacity: 0.82;
+  filter: blur(16px);
+  z-index: -1;
+  animation: logoPulse 3.2s ease-in-out infinite;
 }
 
 .empty-icon svg {
-  color: white;
+  overflow: visible;
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.42));
+}
+
+.core-ring {
+  stroke: rgba(226, 232, 240, 0.72);
+  stroke-width: 1.8;
+  fill: none;
+  opacity: 0.92;
+}
+
+.core-ring-inner {
+  stroke: rgba(125, 211, 252, 0.6);
+  stroke-width: 1.4;
+  opacity: 0.9;
+}
+
+.core-arc {
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 3;
+  stroke-linecap: round;
+  fill: none;
+  filter: drop-shadow(0 0 10px rgba(125, 211, 252, 0.32));
+}
+
+.core-arc-secondary {
+  stroke: rgba(196, 181, 253, 0.88);
+  filter: drop-shadow(0 0 10px rgba(196, 181, 253, 0.28));
+}
+
+.core-pulse {
+  fill: #ffffff;
+  filter:
+    drop-shadow(0 0 12px rgba(255, 255, 255, 0.9))
+    drop-shadow(0 0 28px rgba(103, 232, 249, 0.5));
+  animation: coreSpark 3.4s ease-in-out infinite;
+}
+
+.logo-halo,
+.logo-orbit,
+.logo-reflection {
+  position: absolute;
+  pointer-events: none;
+}
+
+.logo-halo {
+  inset: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  box-shadow: inset 0 0 34px rgba(56, 189, 248, 0.08);
+}
+
+.halo-1 {
+  animation: haloBreath 4.4s ease-in-out infinite;
+}
+
+.halo-2 {
+  inset: 12px;
+  border-color: rgba(196, 181, 253, 0.12);
+  transform: rotateX(68deg);
+  animation: haloTilt 7s linear infinite;
+}
+
+.logo-orbit {
+  inset: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  transform-style: preserve-3d;
+}
+
+.logo-orbit span {
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #67e8f9;
+  box-shadow: 0 0 18px rgba(103, 232, 249, 0.95);
+}
+
+.orbit-a {
+  animation: orbitSpin 9s linear infinite;
+}
+
+.orbit-b {
+  inset: 46px;
+  transform: rotateX(68deg) rotateZ(22deg);
+  animation: orbitSpinReverse 12s linear infinite;
+}
+
+.orbit-b span {
+  background: #c4b5fd;
+  box-shadow: 0 0 18px rgba(196, 181, 253, 0.95);
+}
+
+.orbit-c {
+  inset: 70px;
+  transform: rotateY(62deg) rotateZ(-18deg);
+  animation: orbitSpin 7.5s linear infinite;
+}
+
+.orbit-c span {
+  width: 6px;
+  height: 6px;
+  background: #34d399;
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.85);
+}
+
+.logo-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.logo-particles span {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(186, 230, 253, 0.9);
+  box-shadow: 0 0 12px rgba(125, 211, 252, 0.8);
+  animation: particleDrift 4.8s ease-in-out infinite;
+}
+
+.logo-particles span:nth-child(1) { left: 20%; top: 26%; animation-delay: -0.4s; }
+.logo-particles span:nth-child(2) { left: 78%; top: 30%; animation-delay: -1.1s; }
+.logo-particles span:nth-child(3) { left: 15%; top: 66%; animation-delay: -2s; }
+.logo-particles span:nth-child(4) { left: 84%; top: 68%; animation-delay: -2.7s; }
+.logo-particles span:nth-child(5) { left: 48%; top: 12%; animation-delay: -3.2s; }
+.logo-particles span:nth-child(6) { left: 52%; top: 88%; animation-delay: -3.9s; }
+
+.logo-reflection {
+  bottom: 20px;
+  width: 156px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(56, 189, 248, 0.22), transparent 72%);
+  filter: blur(3px);
+  animation: reflectionPulse 5.6s ease-in-out infinite;
+}
+
+.empty-copy {
+  position: relative;
+  z-index: 1;
+}
+
+.empty-kicker {
+  margin-bottom: 10px;
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .empty-state h3 {
-  font-size: 24px;
-  font-weight: 600;
+  position: relative;
+  z-index: 1;
+  font-size: 30px;
+  font-weight: 800;
   color: var(--text-primary);
   margin-bottom: 12px;
 }
 
 .empty-state p {
+  position: relative;
+  z-index: 1;
   font-size: 15px;
   color: var(--text-secondary);
-  margin-bottom: 32px;
+  margin-bottom: 26px;
 }
 
-.suggested-prompts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  justify-content: center;
-  max-width: 600px;
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0) rotateX(10deg) rotateZ(-4deg); }
+  50% { transform: translateY(-16px) rotateX(14deg) rotateZ(3deg); }
 }
 
-.prompt-btn {
-  padding: 10px 20px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
-  border-radius: 20px;
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.3s ease;
+@keyframes logoPulse {
+  0%, 100% { opacity: 0.62; transform: scale(1); }
+  50% { opacity: 0.95; transform: scale(1.08); }
 }
 
-.prompt-btn:hover {
-  border-color: var(--border-glow);
-  box-shadow: var(--glow-primary);
-  transform: translateY(-2px);
+@keyframes haloBreath {
+  0%, 100% { opacity: 0.38; transform: scale(0.92); }
+  50% { opacity: 0.78; transform: scale(1.05); }
+}
+
+@keyframes haloTilt {
+  from { transform: rotateX(68deg) rotateZ(0deg); }
+  to { transform: rotateX(68deg) rotateZ(360deg); }
+}
+
+@keyframes orbitSpin {
+  from { transform: rotateZ(0deg); }
+  to { transform: rotateZ(360deg); }
+}
+
+@keyframes orbitSpinReverse {
+  from { transform: rotateX(68deg) rotateZ(360deg); }
+  to { transform: rotateX(68deg) rotateZ(0deg); }
+}
+
+@keyframes particleDrift {
+  0%, 100% { opacity: 0.18; transform: translate3d(0, 0, 0) scale(0.7); }
+  50% { opacity: 1; transform: translate3d(8px, -14px, 0) scale(1.2); }
+}
+
+@keyframes reflectionPulse {
+  0%, 100% { opacity: 0.34; transform: scaleX(0.82); }
+  50% { opacity: 0.62; transform: scaleX(1.08); }
+}
+
+@keyframes coreAura {
+  0%, 100% { opacity: 0.72; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes coreSpark {
+  0%, 100% { opacity: 0.86; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.04); }
 }
 
 .message {
   display: flex;
   gap: 16px;
+  width: min(920px, 100%);
   animation: fadeIn 0.3s ease;
+}
+
+.message-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.message-assistant {
+  align-self: flex-start;
 }
 
 @keyframes fadeIn {
@@ -1866,25 +2128,30 @@ onMounted(async () => {
 
 /* Chat Input */
 .chat-input-container {
-  padding: 16px 32px;
+  padding: 14px 0 16px;
   border-top: 1px solid var(--border-primary);
+  background: rgba(5, 8, 23, 0.52);
+  backdrop-filter: blur(14px);
 }
 
 .chat-input-wrapper {
   display: flex;
   gap: 12px;
   align-items: center;
-  background: var(--bg-card);
-  backdrop-filter: blur(10px);
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto;
+  background: rgba(15, 23, 42, 0.74);
+  backdrop-filter: blur(16px);
   border: 1px solid var(--border-primary);
-  border-radius: 12px;
-  padding: 8px 12px;
+  border-radius: 14px;
+  padding: 9px 12px;
   transition: all 0.3s ease;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
 }
 
 .chat-input-wrapper:focus-within {
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: var(--border-glow);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1), 0 18px 50px rgba(0, 0, 0, 0.26);
 }
 
 .input-plus-menu {
@@ -1897,7 +2164,7 @@ onMounted(async () => {
   height: 36px;
   border-radius: 10px;
   border: 1px solid var(--border-primary);
-  background: var(--bg-secondary);
+  background: rgba(8, 13, 28, 0.78);
   color: var(--text-primary);
   cursor: pointer;
   font-size: 22px;
@@ -1986,7 +2253,7 @@ onMounted(async () => {
 
 .send-btn:hover:not(:disabled) {
   transform: scale(1.05);
-  box-shadow: 0 0 30px rgba(102, 126, 234, 0.8);
+  box-shadow: 0 0 30px rgba(56, 189, 248, 0.5);
 }
 
 .send-btn:disabled {
@@ -2490,26 +2757,49 @@ onMounted(async () => {
   }
 
   .chat-header {
-    padding: 16px 20px 0;
+    width: min(100% - 40px, 920px);
+    padding: 18px 0 0;
   }
 
   .chat-messages {
-    padding: 0 20px 20px;
+    width: min(100% - 40px, 920px);
+    padding: 0 0 20px;
   }
 
   .chat-input-container {
-    padding: 16px 20px;
+    padding: 14px 0;
+  }
+
+  .chat-input-wrapper {
+    width: min(100% - 40px, 920px);
+  }
+
+  .attached-papers-bar {
+    width: min(100% - 40px, 920px);
   }
 }
 
 @media (max-width: 768px) {
   .chat-header {
     flex-direction: column;
-    padding: 12px 16px 0;
+    width: calc(100% - 32px);
+    padding: 14px 0 0;
+    gap: 14px;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .header-action-btn {
+    flex: 1;
+    padding-inline: 10px;
   }
 
   .message {
     gap: 12px;
+    width: 100%;
   }
 
   .message-avatar {
@@ -2522,14 +2812,6 @@ onMounted(async () => {
     font-size: 13px;
   }
 
-  .suggested-prompts {
-    flex-direction: column;
-  }
-
-  .prompt-btn {
-    width: 100%;
-  }
-  
   .message-text :deep(.katex-block) {
     padding: 0.4rem 0.75rem;
     font-size: 0.9em;
@@ -2540,11 +2822,46 @@ onMounted(async () => {
   }
 
   .chat-messages {
-    padding: 0 16px 16px;
+    width: calc(100% - 32px);
+    padding: 0 0 16px;
+  }
+
+  .empty-state {
+    min-height: 320px;
+    padding: 32px 20px;
+  }
+
+  .ai-logo-stage {
+    width: 220px;
+    height: 220px;
+    margin-bottom: 14px;
+  }
+
+  .empty-icon {
+    width: 104px;
+    height: 104px;
+    border-radius: 28px;
+  }
+
+  .empty-icon svg {
+    width: 60px;
+    height: 60px;
+  }
+
+  .empty-state h3 {
+    font-size: 25px;
   }
 
   .chat-input-container {
-    padding: 12px 16px;
+    padding: 12px 0;
+  }
+
+  .chat-input-wrapper {
+    width: calc(100% - 32px);
+  }
+
+  .attached-papers-bar {
+    width: calc(100% - 32px);
   }
 
   .new-chat-btn span {
@@ -2558,6 +2875,18 @@ onMounted(async () => {
 
   .conv-meta {
     font-size: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-icon,
+  .empty-icon::before,
+  .logo-halo,
+  .logo-orbit,
+  .logo-particles span,
+  .logo-reflection,
+  .empty-state::before {
+    animation: none;
   }
 }
 

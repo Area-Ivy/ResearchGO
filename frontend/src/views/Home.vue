@@ -404,6 +404,7 @@ onMounted(() => {
 .dashboard {
   max-width: 1600px;
   margin: 0 auto;
+  position: relative;
 }
 
 .dashboard-header {
@@ -412,6 +413,7 @@ onMounted(() => {
   align-items: flex-start;
   margin-bottom: 32px;
   gap: 24px;
+  padding: 4px 0 8px;
 }
 
 .welcome-section {
@@ -428,7 +430,7 @@ onMounted(() => {
   width: 44px;
   height: 44px;
   border-radius: 10px;
-  background: var(--bg-secondary);
+  background: rgba(15, 23, 42, 0.72);
   border: 1px solid var(--border-primary);
   color: var(--text-primary);
   display: flex;
@@ -452,6 +454,7 @@ onMounted(() => {
 
 .stats-card {
   padding: 24px;
+  min-height: 270px;
 }
 
 .stats-header {
@@ -466,7 +469,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 800;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -477,7 +480,7 @@ onMounted(() => {
   height: 8px;
   border-radius: 50%;
   background: var(--accent-primary);
-  box-shadow: 0 0 10px var(--accent-primary);
+  box-shadow: 0 0 14px var(--accent-primary);
   animation: pulse 2s ease-in-out infinite;
 }
 
@@ -496,8 +499,8 @@ onMounted(() => {
 }
 
 .stats-value h2 {
-  font-size: 48px;
-  font-weight: 700;
+  font-size: 52px;
+  font-weight: 800;
   background: var(--gradient-primary);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -513,17 +516,18 @@ onMounted(() => {
 }
 
 .progress-bar {
-  height: 8px;
-  background: rgba(102, 126, 234, 0.1);
-  border-radius: 4px;
+  height: 10px;
+  background: rgba(56, 189, 248, 0.08);
+  border-radius: 999px;
   overflow: hidden;
   margin-bottom: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.08);
 }
 
 .progress-fill {
   height: 100%;
   background: var(--gradient-primary);
-  border-radius: 4px;
+  border-radius: 999px;
   transition: width 0.6s ease;
   box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
 }
@@ -552,6 +556,7 @@ onMounted(() => {
   position: relative;
   width: 160px;
   height: 160px;
+  filter: drop-shadow(0 0 22px rgba(56, 189, 248, 0.12));
 }
 
 .entropy-value {
@@ -625,7 +630,7 @@ onMounted(() => {
 
 .card-header h3 {
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 800;
   color: var(--text-primary);
   margin: 0;
 }
@@ -650,7 +655,7 @@ onMounted(() => {
 
 .recommendation-item {
   padding: 16px;
-  background: var(--bg-secondary);
+  background: rgba(8, 13, 28, 0.62);
   border: 1px solid var(--border-primary);
   border-radius: 10px;
   transition: all 0.3s ease;
@@ -660,13 +665,14 @@ onMounted(() => {
 .recommendation-item:hover {
   border-color: var(--border-glow);
   box-shadow: var(--glow-primary);
+  transform: translateX(3px);
 }
 
 .recommendation-tag {
   display: inline-block;
   font-size: 11px;
   color: var(--accent-primary);
-  background: rgba(102, 126, 234, 0.1);
+  background: rgba(56, 189, 248, 0.1);
   padding: 4px 10px;
   border-radius: 12px;
   margin-bottom: 8px;
@@ -694,7 +700,7 @@ onMounted(() => {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: var(--bg-tertiary);
+  background: rgba(15, 23, 42, 0.8);
   border: 1px solid var(--border-primary);
   color: var(--text-secondary);
   display: flex;
@@ -720,7 +726,7 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   padding: 12px;
-  background: var(--bg-secondary);
+  background: rgba(8, 13, 28, 0.62);
   border: 1px solid var(--border-primary);
   border-radius: 10px;
   transition: all 0.3s ease;
@@ -729,6 +735,7 @@ onMounted(() => {
 .progress-item:hover {
   border-color: var(--border-glow);
   box-shadow: var(--glow-primary);
+  transform: translateX(3px);
 }
 
 .progress-icon {
@@ -791,6 +798,10 @@ onMounted(() => {
 .chart-container {
   height: 240px;
   margin: 20px 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(8, 13, 28, 0.42);
+  border: 1px solid rgba(148, 163, 184, 0.08);
 }
 
 .chart-legend {
@@ -848,7 +859,7 @@ onMounted(() => {
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  background: var(--bg-secondary);
+  background: rgba(8, 13, 28, 0.74);
   border-bottom: 1px solid var(--border-primary);
 }
 
@@ -864,7 +875,7 @@ onMounted(() => {
 }
 
 .queue-table tbody tr:hover {
-  background: rgba(102, 126, 234, 0.05);
+  background: rgba(56, 189, 248, 0.06);
 }
 
 .task-id {

@@ -5,7 +5,6 @@ import Chat from '../views/Chat.vue'
 import LiteratureSearch from '../views/LiteratureSearch.vue'
 import PaperLibrary from '../views/PaperLibrary.vue'
 import PaperReview from '../views/PaperReview.vue'
-import MilvusManager from '../views/MilvusManager.vue'
 import Login from '../views/Login.vue'
 import { isAuthenticated } from '../api/auth'
 
@@ -50,12 +49,6 @@ const routes = [
     path: '/review',
     name: 'PaperReview',
     component: PaperReview,
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/milvus',
-    name: 'MilvusManager',
-    component: MilvusManager,
     meta: { requiresAuth: true }
   }
 ]
