@@ -1,6 +1,8 @@
 """LangGraph agent implementation for ResearchGO."""
+import copy
 import json
 import logging
+import uuid
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -32,6 +34,18 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """You are the ResearchGO AI research assistant.
 You can search literature, inspect user papers, run vector retrieval, analyze papers, build mindmaps, and compare papers.
 Use the available tools when they improve factual accuracy. Prefer attached conversation paper_id values for paper-specific operations.
+If exactly one paper is attached to the current conversation, treat ambiguous references such as "this paper", "the selected paper", "this article", or "this work" as referring to that attached paper by default.
+When the user asks for an introduction, summary, analysis, explanation, or question answering about the currently attached paper, do not ask the user to repeat the paper name or ID unless multiple attached papers create ambiguity.
+When exactly one paper is attached and the user says phrases like "这篇论文", "这篇文章", "该论文", or similar references, resolve that reference to the attached paper and use paper-specific tools with its paper_id instead of asking a clarifying question.
+For questions about a currently attached user paper, follow this policy strictly:
+1. If exactly one paper is attached, assume the request targets that paper unless the user clearly says otherwise.
+2. For grounded Q&A about the paper, call ask_about_paper with that paper_id.
+3. For requests such as introduce, summarize, explain, analyze, or review the paper, prefer ask_about_paper first for grounded retrieval, and use analyze_paper when a structured paper analysis is specifically useful.
+4. Do not answer from general model knowledge alone when a relevant attached paper tool can be used.
+5. Do not say you cannot identify or analyze the paper if a single attached paper_id is already available.
+6. Only ask a clarifying question when multiple attached papers create real ambiguity.
+When the user asks to search their personal paper library without giving a keyword, do not infer a topic from earlier turns.
+Instead, either list the user's papers with search_user_papers using an empty query, or ask a brief clarifying follow-up.
 
 Available tools:
 {tool_descriptions}
@@ -44,6 +58,52 @@ Some local tools are currently degraded or unavailable:
 {tools}
 Prefer alternatives when possible and explain limitations briefly.
 """
+
+ATTACHED_PAPER_REFERENCE_MARKERS = (
+    "这篇论文",
+    "这篇文章",
+    "该论文",
+    "该文章",
+    "这篇",
+    "selected paper",
+    "attached paper",
+    "current paper",
+    "this paper",
+    "this article",
+    "this work",
+)
+
+
+def _should_bind_single_attached_paper(user_input: str, attached_papers: List[Dict[str, str]]) -> bool:
+    if len(attached_papers) != 1:
+        return False
+
+    lowered = (user_input or "").lower()
+    if not lowered.strip():
+        return False
+
+    return any(marker in user_input or marker in lowered for marker in ATTACHED_PAPER_REFERENCE_MARKERS)
+
+
+def _augment_user_message_with_attached_paper(
+    user_input: str,
+    attached_paper: Dict[str, str],
+) -> str:
+    paper_id = attached_paper.get("paper_id", "").strip()
+    paper_name = attached_paper.get("name", "").strip() or paper_id or "Unknown paper"
+    if not paper_id:
+        return user_input
+
+    return (
+        f"{user_input}\n\n"
+        "[Attached paper resolution]\n"
+        "The user is referring to the currently attached paper.\n"
+        f"paper_id: {paper_id}\n"
+        f"paper_name: {paper_name}\n"
+        "Use this paper as the default target for paper-specific tools and grounded answers.\n"
+        "If the request is about introducing, summarizing, explaining, reviewing, or answering questions about the paper, do not ask for the paper name again.\n"
+        "Call ask_about_paper for grounded paper Q&A, or analyze_paper when a structured analysis is needed."
+    )
 
 
 class ResearchAgent:
@@ -133,7 +193,7 @@ class ResearchAgent:
     ) -> Tuple[List[Dict[str, Any]], str, str]:
         summary = ""
         memory_context = ""
-        processed_messages = messages
+        processed_messages = copy.deepcopy(messages)
 
         if ENABLE_CONVERSATION_SUMMARY and conversation_id:
             try:
@@ -173,12 +233,33 @@ class ResearchAgent:
                 if paper_id:
                     paper_lines.append(f"- {paper_name} (paper_id: {paper_id})")
             if paper_lines:
+                single_paper_hint = ""
+                if len(paper_lines) == 1:
+                    single_paper_hint = (
+                        "\nThere is exactly one attached paper. Resolve phrases like "
+                        "'this paper', 'this article', 'the selected paper', and similar "
+                        "references to that paper by default."
+                    )
                 suffix = "\n".join(paper_lines)
                 memory_context = (
                     f"{memory_context}\n\n[Current conversation papers]\n"
-                    "Prefer these paper_id values when using paper-related tools.\n"
+                    "Prefer these paper_id values when using paper-related tools."
+                    f"{single_paper_hint}\n"
                     f"{suffix}"
                 ).strip()
+
+        if _should_bind_single_attached_paper(user_input, attached_papers):
+            attached_paper = attached_papers[0]
+            resolved_user_input = _augment_user_message_with_attached_paper(user_input, attached_paper)
+            if processed_messages and processed_messages[-1].get("role") == "user":
+                processed_messages[-1]["content"] = resolved_user_input
+            paper_id = attached_paper.get("paper_id")
+            paper_name = attached_paper.get("name", paper_id)
+            memory_context = (
+                f"{memory_context}\n\n[Current request target paper]\n"
+                "Resolve the user's paper reference to the attached paper below.\n"
+                f"- {paper_name} (paper_id: {paper_id})"
+            ).strip()
 
         return processed_messages, summary, memory_context
 
@@ -261,21 +342,28 @@ class ResearchAgent:
 
     async def _plan_node(self, state: AgentState) -> Dict[str, Any]:
         logger.info("Plan node - iteration: %s", state.get("iteration", 0))
+        prepared_messages = state.get("prepared_messages") or state.get("messages", [])
         messages = self._build_llm_messages(
-            state.get("prepared_messages") or state.get("messages", []),
+            prepared_messages,
             state.get("summary", "") or "",
             state.get("memory_context", "") or "",
         )
         response = await self.llm_with_tools.ainvoke(messages)
         thoughts = state.get("thoughts", [])
         tool_calls: List[ToolCall] = []
+        assistant_message = {
+            "role": "assistant",
+            "content": response.content or "",
+        }
 
         if response.tool_calls:
+            assistant_message["tool_calls"] = response.tool_calls
             for tool_call in response.tool_calls:
                 tool_calls.append(ToolCall(id=tool_call["id"], name=tool_call["name"], arguments=tool_call["args"]))
                 thoughts.append(f"Planning tool call: {tool_call['name']}")
             return {
-                "messages": [{"role": "assistant", "content": response.content or "", "tool_calls": response.tool_calls}],
+                "messages": [assistant_message],
+                "prepared_messages": prepared_messages + [assistant_message],
                 "tool_calls": tool_calls,
                 "thoughts": thoughts,
                 "should_continue": True,
@@ -286,7 +374,8 @@ class ResearchAgent:
 
         thoughts.append("Planning complete: enough context to answer")
         return {
-            "messages": [{"role": "assistant", "content": response.content}],
+            "messages": [assistant_message],
+            "prepared_messages": prepared_messages + [assistant_message],
             "tool_calls": [],
             "thoughts": thoughts,
             "should_continue": False,
@@ -298,6 +387,7 @@ class ResearchAgent:
         logger.info("Execute tools node")
         tool_calls = state.get("tool_calls", [])
         thoughts = state.get("thoughts", [])
+        prepared_messages = state.get("prepared_messages") or state.get("messages", [])
         new_messages = []
         outcome = "success"
 
@@ -393,6 +483,7 @@ class ResearchAgent:
 
         return {
             "messages": new_messages,
+            "prepared_messages": prepared_messages + new_messages,
             "thoughts": thoughts,
             "tool_outcome": outcome,
         }
@@ -506,6 +597,14 @@ class ResearchAgent:
         initial_state["messages"].append({"role": "user", "content": user_input})
         return initial_state
 
+    def _build_runtime_config(self, conversation_id: Optional[str]) -> Dict[str, Any]:
+        if not self.checkpointer:
+            return {}
+
+        conversation_part = conversation_id or "no-conversation"
+        request_part = uuid.uuid4().hex
+        return {"configurable": {"thread_id": f"conv_{conversation_part}_req_{request_part}"}}
+
     async def run(
         self,
         user_input: str,
@@ -524,10 +623,10 @@ class ResearchAgent:
             attached_papers=attached_papers,
         )
 
-        config = {}
-        if self.checkpointer and conversation_id:
-            config = {"configurable": {"thread_id": f"conv_{conversation_id}"}}
-
+        # Conversation history is already reconstructed from the conversation service/cache.
+        # Use a request-scoped thread_id so the checkpointer API contract is satisfied
+        # without rehydrating stale internal graph state across turns.
+        config = self._build_runtime_config(conversation_id)
         final_state = await self.app.ainvoke(initial_state, config=config)
         await self._post_process_memories(final_state.get("messages", []), user_id=user_id, token=token)
         return {
@@ -554,13 +653,13 @@ class ResearchAgent:
             attached_papers=attached_papers,
         )
 
-        config = {}
-        if self.checkpointer and conversation_id:
-            config = {"configurable": {"thread_id": f"conv_{conversation_id}"}}
-
+        # Keep each request isolated from prior LangGraph checkpoints while still
+        # providing the checkpointer-required configurable thread_id.
+        config = self._build_runtime_config(conversation_id)
         last_thoughts_count = 0
         final_messages: List[Dict[str, Any]] = []
         final_answer_chunks: List[str] = []
+        emitted_tool_message_ids = set()
         tracked_nodes = {
             "prepare_context",
             "refresh_capabilities",
@@ -601,14 +700,27 @@ class ResearchAgent:
                     for msg in output.get("messages", []):
                         if msg.get("role") == "tool":
                             try:
+                                tool_message_id = msg.get("tool_call_id")
+                                if tool_message_id and tool_message_id in emitted_tool_message_ids:
+                                    continue
                                 tool_data = json.loads(msg.get("content", "{}"))
                                 if tool_data.get("results") and isinstance(tool_data["results"], list):
                                     if tool_data["results"] and "title" in tool_data["results"][0]:
+                                        if tool_message_id:
+                                            emitted_tool_message_ids.add(tool_message_id)
                                         yield StreamEvent(event="papers", data={
                                             "query": tool_data.get("query", ""),
                                             "total": tool_data.get("total_count", len(tool_data["results"])),
                                             "papers": tool_data["results"],
                                         })
+                                elif tool_data.get("mindmap_data"):
+                                    if tool_message_id:
+                                        emitted_tool_message_ids.add(tool_message_id)
+                                    yield StreamEvent(event="mindmap", data={
+                                        "paper_id": tool_data.get("paper_id"),
+                                        "mindmap_data": tool_data.get("mindmap_data"),
+                                        "message": tool_data.get("message", "Mindmap generated successfully."),
+                                    })
                             except Exception:
                                 pass
                     if output.get("final_answer"):

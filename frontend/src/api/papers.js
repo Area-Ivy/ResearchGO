@@ -65,6 +65,16 @@ export async function listPapers() {
 }
 
 /**
+ * Get one paper indexing status.
+ * @param {string} objectName - MinIO object name
+ * @returns {Promise} Paper status
+ */
+export async function getPaperStatus(objectName) {
+  const response = await paperClient.get(`/api/papers/status/${objectName}`)
+  return response.data
+}
+
+/**
  * 下载论文
  * @param {string} objectName - MinIO 中的对象名称
  * @param {string} originalName - 原始文件名（用于保存）
@@ -132,4 +142,3 @@ export async function paperQA(paperId, question, chatHistory = [], topK = 10) {
   )
   return response.data
 }
-

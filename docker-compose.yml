@@ -408,11 +408,14 @@ services:
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - RERANKER_MODEL=/models/reranker
       - AUTH_SERVICE_URL=http://auth-service:8001
       # Consul 服务注册
       - CONSUL_HOST=consul
       - SERVICE_NAME=vector-search-service
       - SERVICE_PORT=8004
+    volumes:
+      - ./backend/reranker:/models/reranker:ro
     networks:
       - researchgo-network
     depends_on:

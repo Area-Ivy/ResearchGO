@@ -94,13 +94,13 @@
         </svg>
       </button>
     </div>
-    <div v-if="uploadSuccess" class="status-message success-message">
+    <div v-if="uploadSuccessMessage" class="status-message success-message">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
         <polyline points="22 4 12 14.01 9 11.01"></polyline>
       </svg>
-      <span>File uploaded successfully!</span>
-      <button @click="uploadSuccess = false" class="dismiss-btn">
+      <span>{{ uploadSuccessMessage }}</span>
+      <button @click="clearSuccessMessage" class="dismiss-btn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18"></line>
           <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -301,8 +301,16 @@
           <div class="paper-info">
             <h4 class="paper-name" :title="paper.original_name">{{ paper.original_name }}</h4>
             <div class="paper-meta">
-              <span class="paper-size">{{ formatFileSize(paper.size) }}</span>
-              <span class="paper-date">{{ formatDate(paper.last_modified) }}</span>
+              <span class="paper-size">{{ formatFileSize(paper.file_size) }}</span>
+              <span class="paper-date">{{ formatDate(paper.created_at) }}</span>
+            </div>
+            <div class="paper-status-row">
+              <span class="paper-status-badge" :class="paper.processing_status">
+                {{ formatProcessingStatus(paper.processing_status) }}
+              </span>
+              <span class="paper-status-detail">
+                {{ getPaperStatusDetail(paper) }}
+              </span>
             </div>
           </div>
           <div class="paper-actions">
@@ -368,9 +376,10 @@ export default {
       isUploading: false,
       isDeleting: false,
       uploadError: null,
-      uploadSuccess: false,
+      uploadSuccessMessage: '',
       showDeleteModal: false,
       paperToDelete: null,
+      pollTimerId: null,
       // 搜索相关
       isSearching: false,
       searchResults: [],
@@ -433,17 +442,68 @@ export default {
   mounted() {
     this.loadPapers()
   },
+  beforeUnmount() {
+    this.stopPolling()
+  },
   methods: {
     async loadPapers() {
       this.isLoading = true
       try {
         const response = await listPapers()
         this.papers = response.papers || []
+        this.syncPollingState()
       } catch (error) {
         console.error('Failed to load papers:', error)
       } finally {
         this.isLoading = false
       }
+    },
+
+    syncPollingState() {
+      const hasIndexing = this.papers.some(paper => paper.processing_status === 'indexing')
+      if (hasIndexing) {
+        this.startPolling()
+      } else {
+        this.stopPolling()
+      }
+    },
+
+    startPolling() {
+      if (this.pollTimerId) return
+      this.pollTimerId = window.setInterval(async () => {
+        if (this.isLoading || this.isSearching) return
+        try {
+          const response = await listPapers()
+          this.papers = response.papers || []
+          if (!this.papers.some(paper => paper.processing_status === 'indexing')) {
+            this.stopPolling()
+          }
+        } catch (error) {
+          console.error('Polling papers failed:', error)
+        }
+      }, 4000)
+    },
+
+    stopPolling() {
+      if (this.pollTimerId) {
+        window.clearInterval(this.pollTimerId)
+        this.pollTimerId = null
+      }
+    },
+
+    showSuccessMessage(message, duration = 3000) {
+      this.uploadSuccessMessage = message
+      if (duration > 0) {
+        window.setTimeout(() => {
+          if (this.uploadSuccessMessage === message) {
+            this.uploadSuccessMessage = ''
+          }
+        }, duration)
+      }
+    },
+
+    clearSuccessMessage() {
+      this.uploadSuccessMessage = ''
     },
     
     async handleSemanticSearch() {
@@ -536,10 +596,7 @@ export default {
     copyPaperReference(paper) {
       const citation = `${paper.file_name} (${paper.matched_chunks} relevant sections, max relevance: ${this.formatRelevance(paper.max_relevance)})`
       navigator.clipboard.writeText(citation).then(() => {
-        this.uploadSuccess = true
-        setTimeout(() => {
-          this.uploadSuccess = false
-        }, 2000)
+        this.showSuccessMessage('Reference copied to clipboard.', 2000)
       }).catch(err => {
         console.error('Failed to copy:', err)
       })
@@ -566,15 +623,11 @@ export default {
     async uploadFile(file) {
       this.isUploading = true
       this.uploadError = null
-      this.uploadSuccess = false
+      this.uploadSuccessMessage = ''
 
       try {
-        await uploadPaper(file)
-        this.uploadSuccess = true
-        setTimeout(() => {
-          this.uploadSuccess = false
-        }, 3000)
-        // Reload papers list
+        const result = await uploadPaper(file)
+        this.showSuccessMessage(result.message || 'File uploaded successfully.', 5000)
         await this.loadPapers()
       } catch (error) {
         console.error('Upload failed:', error)
@@ -616,11 +669,31 @@ export default {
       }
     },
     formatFileSize(bytes) {
+      if (!bytes) return '0 Bytes'
       if (bytes === 0) return '0 Bytes'
       const k = 1024
       const sizes = ['Bytes', 'KB', 'MB', 'GB']
       const i = Math.floor(Math.log(bytes) / Math.log(k))
       return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+    },
+    formatProcessingStatus(status) {
+      if (status === 'indexed') return 'Indexed'
+      if (status === 'indexing') return 'Indexing'
+      if (status === 'failed') return 'Failed'
+      return 'Uploaded'
+    },
+    getPaperStatusDetail(paper) {
+      if (paper.processing_status === 'indexed') {
+        const chunks = paper.chunks_created || 0
+        return `${chunks} chunks ready for search`
+      }
+      if (paper.processing_status === 'failed') {
+        return paper.processing_error || 'Indexing failed'
+      }
+      if (paper.processing_status === 'indexing') {
+        return 'Parsing PDF and writing vector index'
+      }
+      return 'Waiting for indexing'
     },
     formatDate(dateString) {
       if (!dateString) return 'Unknown'
@@ -1067,6 +1140,54 @@ export default {
   gap: 12px;
   font-size: 13px;
   color: var(--text-tertiary);
+}
+
+.paper-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.paper-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+
+.paper-status-badge.uploaded {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.paper-status-badge.indexing {
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, 0.28);
+}
+
+.paper-status-badge.indexed {
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.paper-status-badge.failed {
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.28);
+}
+
+.paper-status-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .paper-actions {
@@ -1713,4 +1834,3 @@ export default {
   }
 }
 </style>
-

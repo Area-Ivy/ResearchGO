@@ -2,13 +2,15 @@ from .paper import (
     PaperUploadResponse,
     PaperInfo,
     PaperListResponse,
-    DeleteResponse
+    DeleteResponse,
+    PaperStatusResponse,
 )
 
 __all__ = [
     "PaperUploadResponse",
     "PaperInfo",
     "PaperListResponse",
-    "DeleteResponse"
+    "DeleteResponse",
+    "PaperStatusResponse",
 ]
 

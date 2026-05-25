@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="chat-page">
     <!-- History Sidebar -->
     <aside class="chat-sidebar" :class="{ 'sidebar-open': sidebarOpen }">
@@ -97,9 +97,17 @@
           >
             {{ paperLibraryLoading ? 'Loading...' : 'Select Paper' }}
           </button>
-          <!-- 预留操作按钮位置 -->
+          <!-- 棰勭暀鎿嶄綔鎸夐挳浣嶇疆 -->
         </div>
       </div>
+
+    <div
+      v-if="paperUploadNotice"
+      class="paper-upload-notice"
+      :class="paperUploadNoticeType"
+    >
+      {{ paperUploadNotice }}
+    </div>
 
     <div v-if="attachedPapers.length > 0" class="attached-papers-bar">
       <div class="attached-papers-label">Attached papers</div>
@@ -161,6 +169,17 @@
             <span class="message-time">{{ message.time }}</span>
           </div>
           <div class="message-text" v-html="message.content"></div>
+          <div v-if="message.mindmaps?.length" class="message-mindmaps">
+            <div v-for="mindmap in message.mindmaps" :key="mindmap.id" class="mindmap-card">
+              <div class="mindmap-card-header">
+                <div class="mindmap-card-title">思维导图</div>
+                <div class="mindmap-card-subtitle">{{ mindmap.title }}</div>
+              </div>
+              <div class="mindmap-card-body">
+                <div :id="mindmap.id" class="chat-jsmind-container"></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -244,6 +263,7 @@
         <button class="paper-library-close" @click="paperLibraryOpen = false">Close</button>
       </div>
       <div v-if="paperLibraryError" class="paper-library-error">{{ paperLibraryError }}</div>
+      <div v-if="paperLibraryNotice" class="paper-library-notice">{{ paperLibraryNotice }}</div>
       <div v-if="paperLibraryLoading" class="paper-library-empty">Loading papers...</div>
       <div v-else-if="availablePapers.length === 0" class="paper-library-empty">
         No uploaded papers yet.
@@ -253,10 +273,18 @@
           v-for="paper in availablePapers"
           :key="paper.object_name"
           class="paper-library-item"
+          :class="{ disabled: !isPaperReady(paper) }"
+          :disabled="!isPaperReady(paper)"
           @click="attachLibraryPaper(paper)"
         >
           <div class="paper-library-title">{{ paper.title || paper.original_name }}</div>
           <div class="paper-library-subtitle">{{ paper.original_name }}</div>
+          <div class="paper-library-status-row">
+            <span class="paper-library-status-badge" :class="paper.processing_status">
+              {{ formatPaperProcessingStatus(paper.processing_status) }}
+            </span>
+            <span class="paper-library-status-text">{{ getPaperStatusDetail(paper) }}</span>
+          </div>
           <div class="paper-library-id">{{ paper.object_name }}</div>
         </button>
       </div>
@@ -271,13 +299,15 @@ export default {
 </script>
 
 <script setup>
-import { ref, nextTick, onMounted, watch } from 'vue'
+import { ref, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import katex from 'katex'
 import hljs from 'highlight.js'
+import jsMind from 'jsmind'
 import 'highlight.js/styles/atom-one-dark.css'
 import 'katex/dist/katex.min.css'
+import 'jsmind/style/jsmind.css'
 import { API_ENDPOINTS } from '../config'
 import {
   createConversation,
@@ -315,7 +345,6 @@ const inputTextarea = ref(null)
 const paperUploadInput = ref(null)
 const error = ref(null)
 
-// 对话管理相关状态
 const conversations = ref([])
 const currentConversation = ref(null)
 const sidebarOpen = ref(false)
@@ -324,9 +353,14 @@ const availablePapers = ref([])
 const paperLibraryOpen = ref(false)
 const paperLibraryLoading = ref(false)
 const paperLibraryError = ref('')
+const paperLibraryNotice = ref('')
 const isUploadingPaper = ref(false)
 const showInputActions = ref(false)
+const paperUploadNotice = ref('')
+const paperUploadNoticeType = ref('info')
+let paperLibraryPollTimer = null
 const ATTACHED_PAPERS_STORAGE_KEY = 'researchgo_chat_attached_papers'
+const chatMindmapInstances = new Map()
 
 // Render LaTeX with KaTeX
 const renderLatex = (text) => {
@@ -412,7 +446,7 @@ const renderLatex = (text) => {
   return text
 }
 
-// 渲染论文卡片
+// 娓叉煋璁烘枃鍗＄墖
 const renderPapersCards = (papersData) => {
   const { query, total, papers } = papersData
   
@@ -426,7 +460,7 @@ const renderPapersCards = (papersData) => {
     </div>`
   }
   
-  // 格式化引用数
+  // 鏍煎紡鍖栧紩鐢ㄦ暟
   const formatCitations = (num) => {
     if (num >= 10000) return (num / 1000).toFixed(1) + 'K'
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
@@ -464,7 +498,6 @@ const renderPapersCards = (papersData) => {
     const abstract = paper.abstract ? paper.abstract.substring(0, 120) + '...' : ''
     const doi = paper.doi || ''
     
-    // 根据引用数决定热度等级
     let hotLevel = ''
     if (citations > 1000) hotLevel = 'hot-fire'
     else if (citations > 100) hotLevel = 'hot-warm'
@@ -476,7 +509,7 @@ const renderPapersCards = (papersData) => {
           <div class="paper-card-header">
             <div class="paper-badges">
               ${isOpenAccess ? '<span class="paper-badge paper-badge-oa"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> Open</span>' : ''}
-              ${hotLevel === 'hot-fire' ? '<span class="paper-badge paper-badge-hot">🔥 High Impact</span>' : ''}
+              ${hotLevel === 'hot-fire' ? '<span class="paper-badge paper-badge-hot">馃敟 High Impact</span>' : ''}
             </div>
             <span class="paper-year-badge">${year}</span>
           </div>
@@ -497,11 +530,11 @@ const renderPapersCards = (papersData) => {
                   <path d="m19 9-5 5-4-4-3 3"></path>
                 </svg>
                 <span class="stat-value">${formatCitations(citations)}</span>
-                <span class="stat-label">引用</span>
+                <span class="stat-label">寮曠敤</span>
               </div>
             </div>
             ${doi ? `<a href="${doi}" target="_blank" class="paper-link">
-              <span>查看详情</span>
+              <span>鏌ョ湅璇︽儏</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
                 <polyline points="15 3 21 3 21 9"></polyline>
@@ -516,15 +549,153 @@ const renderPapersCards = (papersData) => {
   
   html += `</div>`
   
-  // 如果论文数量超过6篇，显示查看更多提示
+  // 濡傛灉璁烘枃鏁伴噺瓒呰繃6绡囷紝鏄剧ず鏌ョ湅鏇村鎻愮ず
   if (papers.length > 6) {
     html += `<div class="papers-more">
-      <span>还有 ${papers.length - 6} 篇论文未显示</span>
+      <span>杩樻湁 ${papers.length - 6} 绡囪鏂囨湭鏄剧ず</span>
     </div>`
   }
   
   html += `</div>`
   return html
+}
+const escapeHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
+
+const buildAssistantMessageContent = (message) => {
+  return `${message.textHtml || ''}${message.artifactsHtml || ''}`
+}
+
+const syncAssistantMessageContent = (index) => {
+  if (index === -1 || !messages.value[index]) return
+  messages.value[index].content = buildAssistantMessageContent(messages.value[index])
+}
+
+const ensureAssistantMessage = () => {
+  let assistantMessageIndex = messages.value.length - 1
+  const lastMessage = messages.value[assistantMessageIndex]
+  if (lastMessage?.role === 'assistant') {
+    return assistantMessageIndex
+  }
+
+  assistantMessageIndex = messages.value.length
+  messages.value.push({
+    role: 'assistant',
+    content: '',
+    rawContent: '',
+    textHtml: '',
+    artifactsHtml: '',
+    mindmaps: [],
+    time: getCurrentTime()
+  })
+  return assistantMessageIndex
+}
+
+const appendAssistantArtifact = (index, html) => {
+  if (index === -1 || !messages.value[index]) return
+  messages.value[index].artifactsHtml = (messages.value[index].artifactsHtml || '') + html
+  syncAssistantMessageContent(index)
+}
+
+const appendAssistantMindmap = async (index, mindmapPayload) => {
+  if (index === -1 || !messages.value[index]) return
+
+  const mindmapData = mindmapPayload?.mindmap_data
+  if (!mindmapData) return
+
+  const paperId = mindmapPayload?.paper_id || 'unknown-paper'
+  const existing = (messages.value[index].mindmaps || []).find(item => item.paperId === paperId)
+  if (existing) {
+    await renderChatMindmap(existing.id, mindmapData)
+    return
+  }
+
+  const mindmapId = `chat-mindmap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const title = mindmapData?.data?.topic || '论文思维导图'
+  const nextMindmaps = [
+    ...(messages.value[index].mindmaps || []),
+    { id: mindmapId, paperId, title, data: mindmapData }
+  ]
+  messages.value[index].mindmaps = nextMindmaps
+  await nextTick()
+  await renderChatMindmap(mindmapId, mindmapData)
+}
+
+const addChatMindmapDragAndZoom = (container) => {
+  if (!container || container.dataset.dragZoomBound === 'true') return
+
+  let scale = 1
+  const jsmindInner = container.querySelector('.jsmind-inner')
+  if (!jsmindInner) return
+
+  container.dataset.dragZoomBound = 'true'
+  jsmindInner.style.transformOrigin = '0 0'
+  jsmindInner.style.transition = 'transform 0.2s ease-out'
+
+  container.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      const rect = container.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+      const scrollLeft = container.scrollLeft
+      const scrollTop = container.scrollTop
+      const contentX = (mouseX + scrollLeft) / scale
+      const contentY = (mouseY + scrollTop) / scale
+      const delta = e.deltaY > 0 ? 0.9 : 1.1
+      scale = Math.min(Math.max(scale * delta, 0.5), 2)
+      jsmindInner.style.transform = `scale(${scale})`
+      container.scrollLeft = contentX * scale - mouseX
+      container.scrollTop = contentY * scale - mouseY
+    }
+  }, { passive: false })
+
+  container.addEventListener('dblclick', (e) => {
+    if (e.target === container || e.target.classList.contains('jsmind-inner')) {
+      const centerX = (container.scrollLeft + container.clientWidth / 2) / scale
+      const centerY = (container.scrollTop + container.clientHeight / 2) / scale
+      scale = 1
+      jsmindInner.style.transition = 'transform 0.3s ease'
+      jsmindInner.style.transform = 'scale(1)'
+      setTimeout(() => {
+        container.scrollLeft = centerX - container.clientWidth / 2
+        container.scrollTop = centerY - container.clientHeight / 2
+        setTimeout(() => {
+          jsmindInner.style.transition = 'transform 0.2s ease-out'
+        }, 50)
+      }, 50)
+    }
+  })
+}
+
+const renderChatMindmap = async (mindmapId, data) => {
+  await nextTick()
+  const container = document.getElementById(mindmapId)
+  if (!container || !data) return
+
+  container.innerHTML = ''
+  chatMindmapInstances.delete(mindmapId)
+
+  const instance = new jsMind({
+    container,
+    theme: 'primary',
+    editable: false,
+    view: {
+      engine: 'canvas',
+      hmargin: 100,
+      vmargin: 50,
+      line_width: 2,
+      line_color: '#555'
+    }
+  })
+
+  instance.show(data)
+  addChatMindmapDragAndZoom(container)
+  chatMindmapInstances.set(mindmapId, instance)
 }
 
 const normalizeAttachedPaper = (paper) => ({
@@ -606,12 +777,75 @@ const triggerPaperUploadAndClose = () => {
   triggerPaperUpload()
 }
 
+const setPaperUploadNotice = (message, type = 'info') => {
+  paperUploadNotice.value = message
+  paperUploadNoticeType.value = type
+  window.setTimeout(() => {
+    if (paperUploadNotice.value === message) {
+      paperUploadNotice.value = ''
+    }
+  }, 5000)
+}
+
+const isPaperReady = (paper) => paper?.processing_status === 'indexed'
+
+const formatPaperProcessingStatus = (status) => {
+  if (status === 'indexed') return 'Indexed'
+  if (status === 'indexing') return 'Indexing'
+  if (status === 'failed') return 'Failed'
+  return 'Uploaded'
+}
+
+const getPaperStatusDetail = (paper) => {
+  if (paper?.processing_status === 'indexed') {
+    return `${paper.chunks_created || 0} chunks ready`
+  }
+  if (paper?.processing_status === 'failed') {
+    return paper.processing_error || 'Indexing failed'
+  }
+  if (paper?.processing_status === 'indexing') {
+    return 'Still parsing and indexing'
+  }
+  return 'Waiting for indexing'
+}
+
+const stopPaperLibraryPolling = () => {
+  if (paperLibraryPollTimer) {
+    window.clearInterval(paperLibraryPollTimer)
+    paperLibraryPollTimer = null
+  }
+}
+
+const syncPaperLibraryPolling = () => {
+  const hasIndexing = availablePapers.value.some(paper => paper.processing_status === 'indexing')
+  if (!paperLibraryOpen.value || !hasIndexing) {
+    stopPaperLibraryPolling()
+    return
+  }
+
+  if (!paperLibraryPollTimer) {
+    paperLibraryPollTimer = window.setInterval(async () => {
+      if (!paperLibraryOpen.value || paperLibraryLoading.value) return
+      try {
+        const data = await listPapers()
+        availablePapers.value = data.papers || []
+        if (!availablePapers.value.some(paper => paper.processing_status === 'indexing')) {
+          stopPaperLibraryPolling()
+        }
+      } catch (error) {
+        console.error('Failed to poll paper library:', error)
+      }
+    }, 4000)
+  }
+}
+
 const loadPaperLibrary = async () => {
   paperLibraryLoading.value = true
   paperLibraryError.value = ''
   try {
     const data = await listPapers()
     availablePapers.value = data.papers || []
+    syncPaperLibraryPolling()
   } catch (err) {
     console.error('Failed to load paper library:', err)
     paperLibraryError.value = 'Failed to load your paper library.'
@@ -622,6 +856,7 @@ const loadPaperLibrary = async () => {
 
 const openPaperLibrary = async () => {
   paperLibraryOpen.value = true
+  paperLibraryNotice.value = ''
   await loadPaperLibrary()
 }
 
@@ -631,9 +866,14 @@ const openPaperLibraryFromInput = async () => {
 }
 
 const attachLibraryPaper = async (paper) => {
+  if (!isPaperReady(paper)) {
+    paperLibraryNotice.value = 'This paper is not ready yet. Please wait until indexing completes.'
+    return
+  }
   await attachPaperToConversation(paper)
   paperLibraryOpen.value = false
   showInputActions.value = false
+  setPaperUploadNotice('Paper attached to this conversation.', 'success')
 }
 
 const handlePaperUpload = async (event) => {
@@ -642,14 +882,28 @@ const handlePaperUpload = async (event) => {
 
   isUploadingPaper.value = true
   paperLibraryError.value = ''
+  paperLibraryNotice.value = ''
 
   try {
     const uploadedPaper = await uploadPaper(file)
-    await attachPaperToConversation(uploadedPaper)
     await loadPaperLibrary()
+    const refreshedPaper = availablePapers.value.find(
+      paper => paper.object_name === uploadedPaper.object_name
+    )
+
+    if (refreshedPaper && isPaperReady(refreshedPaper)) {
+      await attachPaperToConversation(refreshedPaper)
+      setPaperUploadNotice('Paper uploaded, indexed, and attached successfully.', 'success')
+    } else {
+      setPaperUploadNotice(
+        uploadedPaper.message || 'Paper uploaded successfully. Indexing is still in progress.',
+        uploadedPaper.processing_status === 'failed' ? 'error' : 'warning'
+      )
+    }
   } catch (err) {
     console.error('Failed to upload paper:', err)
     paperLibraryError.value = err.message || 'Failed to upload paper.'
+    setPaperUploadNotice(paperLibraryError.value, 'error')
   } finally {
     isUploadingPaper.value = false
     if (event.target) {
@@ -664,33 +918,30 @@ const removeAttachedPaper = (paperId) => {
 }
 
 // ============================================
-// 对话管理函数
+// 瀵硅瘽绠＄悊鍑芥暟
 // ============================================
 
-// 加载对话列表
+// 鍔犺浇瀵硅瘽鍒楄〃
 const loadConversations = async () => {
   try {
     const data = await getConversations(0, 50)
     conversations.value = data.conversations
   } catch (err) {
-    console.error('加载对话列表失败:', err)
+    console.error('鍔犺浇瀵硅瘽鍒楄〃澶辫触:', err)
   }
 }
 
-// 创建新对话
 const createNewChat = async () => {
   try {
-    // 如果正在生成内容，先保存当前对话的最后一条AI消息
+    // 濡傛灉姝ｅ湪鐢熸垚鍐呭锛屽厛淇濆瓨褰撳墠瀵硅瘽鐨勬渶鍚庝竴鏉I娑堟伅
     if (isLoading.value && currentConversation.value && messages.value.length > 0) {
       const lastMessage = messages.value[messages.value.length - 1]
       if (lastMessage.role === 'assistant' && lastMessage.content) {
-        // 提取纯文本内容（去除HTML标签）
         const plainContent = lastMessage.content.replace(/<[^>]*>/g, '')
         if (plainContent.trim()) {
           await saveMessage('assistant', plainContent)
         }
       }
-      // 停止加载状态
       isLoading.value = false
     }
     
@@ -701,32 +952,30 @@ const createNewChat = async () => {
     saveAttachedPapersForConversation(conv.id, [])
     await loadConversations()
     
-    // 移动端关闭侧边栏
+    // 绉诲姩绔叧闂晶杈规爮
     if (window.innerWidth <= 1024) {
       sidebarOpen.value = false
     }
   } catch (err) {
-    console.error('创建对话失败:', err)
-    // 即使失败也允许继续聊天（不保存到数据库）
+    console.error('鍒涘缓瀵硅瘽澶辫触:', err)
+    // 鍗充娇澶辫触涔熷厑璁哥户缁亰澶╋紙涓嶄繚瀛樺埌鏁版嵁搴擄級
     currentConversation.value = null
     messages.value = []
   }
 }
 
-// 切换对话
+// 鍒囨崲瀵硅瘽
 const switchConversation = async (conversationId) => {
   try {
-    // 如果正在生成内容，先保存当前对话的最后一条AI消息
+    // 濡傛灉姝ｅ湪鐢熸垚鍐呭锛屽厛淇濆瓨褰撳墠瀵硅瘽鐨勬渶鍚庝竴鏉I娑堟伅
     if (isLoading.value && currentConversation.value && messages.value.length > 0) {
       const lastMessage = messages.value[messages.value.length - 1]
       if (lastMessage.role === 'assistant' && lastMessage.content) {
-        // 提取纯文本内容（去除HTML标签）
         const plainContent = lastMessage.content.replace(/<[^>]*>/g, '')
         if (plainContent.trim()) {
           await saveMessage('assistant', plainContent)
         }
       }
-      // 停止加载状态
       isLoading.value = false
     }
     
@@ -734,7 +983,7 @@ const switchConversation = async (conversationId) => {
     currentConversation.value = conv
     loadAttachedPapersForConversation(conv.id)
     
-    // 转换消息格式
+    // 杞崲娑堟伅鏍煎紡
     messages.value = conv.messages.map(msg => ({
       role: msg.role,
       content: msg.role === 'user' ? msg.content : marked(renderLatex(msg.content)),
@@ -744,16 +993,16 @@ const switchConversation = async (conversationId) => {
     await nextTick()
     scrollToBottom()
     
-    // 移动端关闭侧边栏
+    // 绉诲姩绔叧闂晶杈规爮
     if (window.innerWidth <= 1024) {
       sidebarOpen.value = false
     }
   } catch (err) {
-    console.error('加载对话失败:', err)
+    console.error('鍔犺浇瀵硅瘽澶辫触:', err)
   }
 }
 
-// 删除对话
+// 鍒犻櫎瀵硅瘽
 const deleteChat = async (conversationId) => {
   if (!confirm('确定要删除这个对话吗？')) return
   
@@ -761,7 +1010,6 @@ const deleteChat = async (conversationId) => {
     await deleteConversation(conversationId)
     removeAttachedPapersForConversation(conversationId)
     
-    // 如果删除的是当前对话，清空界面
     if (currentConversation.value?.id === conversationId) {
       currentConversation.value = null
       messages.value = []
@@ -770,47 +1018,43 @@ const deleteChat = async (conversationId) => {
     
     await loadConversations()
   } catch (err) {
-    console.error('删除对话失败:', err)
+    console.error('鍒犻櫎瀵硅瘽澶辫触:', err)
   }
 }
 
-// 保存消息到数据库
+// 淇濆瓨娑堟伅鍒版暟鎹簱
 const saveMessage = async (role, content) => {
   if (!currentConversation.value) return
   
   try {
     await addMessage(currentConversation.value.id, role, content)
   } catch (err) {
-    console.error('保存消息失败:', err)
+    console.error('淇濆瓨娑堟伅澶辫触:', err)
   }
 }
 
-// 更新对话标题（使用第一条消息）
+// 鏇存柊瀵硅瘽鏍囬锛堜娇鐢ㄧ涓€鏉℃秷鎭級
 const updateConversationTitle = async (firstMessage) => {
   if (!currentConversation.value || currentConversation.value.title !== '新对话') return
   
   try {
-    // 使用第一条消息的前30个字符作为标题
     const title = firstMessage.substring(0, 30) + (firstMessage.length > 30 ? '...' : '')
     await updateConversation(currentConversation.value.id, title)
     currentConversation.value.title = title
     await loadConversations()
   } catch (err) {
-    console.error('更新标题失败:', err)
+    console.error('鏇存柊鏍囬澶辫触:', err)
   }
 }
 
-// 格式化时间显示
 const formatTime = (dateString) => {
   if (!dateString) return ''
   
-  // 解析时间，如果后端返回的是 UTC 时间字符串（如 "2024-01-20T10:30:00"）
-  // 需要添加 'Z' 或明确指定为 UTC
+  // 瑙ｆ瀽鏃堕棿锛屽鏋滃悗绔繑鍥炵殑鏄?UTC 鏃堕棿瀛楃涓诧紙濡?"2024-01-20T10:30:00"锛?  // 闇€瑕佹坊鍔?'Z' 鎴栨槑纭寚瀹氫负 UTC
   let date = new Date(dateString)
   
-  // 如果时间字符串没有时区信息，尝试添加时区
+  // 濡傛灉鏃堕棿瀛楃涓叉病鏈夋椂鍖轰俊鎭紝灏濊瘯娣诲姞鏃跺尯
   if (typeof dateString === 'string' && !dateString.includes('Z') && !dateString.includes('+')) {
-    // 假设后端返回的是本地时间，直接使用
     date = new Date(dateString.replace(' ', 'T'))
   }
   
@@ -828,7 +1072,6 @@ const formatTime = (dateString) => {
   return date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
 }
 
-// 格式化消息时间
 const formatMessageTime = (dateString) => {
   const date = new Date(dateString)
   return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
@@ -839,14 +1082,14 @@ const sendMessage = async () => {
 
   const userInput = inputMessage.value
   
-  // 如果没有当前对话，创建一个新对话
+  // 濡傛灉娌℃湁褰撳墠瀵硅瘽锛屽垱寤轰竴涓柊瀵硅瘽
   if (!currentConversation.value) {
     try {
       currentConversation.value = await createConversation('新对话')
       await loadConversations()
     } catch (err) {
-      console.error('创建对话失败:', err)
-      // 即使创建失败也继续（不保存到数据库）
+      console.error('鍒涘缓瀵硅瘽澶辫触:', err)
+      // 鍗充娇鍒涘缓澶辫触涔熺户缁紙涓嶄繚瀛樺埌鏁版嵁搴擄級
     }
   }
 
@@ -859,9 +1102,8 @@ const sendMessage = async () => {
   messages.value.push(userMessage)
   inputMessage.value = ''
 
-  // 注意：用户消息已在 Agent Service 中自动保存，无需前端再次保存
-  // 标题也在 Agent Service 中自动生成
-
+  // 娉ㄦ剰锛氱敤鎴锋秷鎭凡鍦?Agent Service 涓嚜鍔ㄤ繚瀛橈紝鏃犻渶鍓嶇鍐嶆淇濆瓨
+  // 鏍囬涔熷湪 Agent Service 涓嚜鍔ㄧ敓鎴?
   // Auto-resize textarea
   if (inputTextarea.value) {
     inputTextarea.value.style.height = 'auto'
@@ -885,7 +1127,6 @@ const sendMessage = async () => {
         content: typeof m.content === 'string' ? m.content.replace(/<[^>]*>/g, '') : m.content
       }))
 
-    // 先滚动到底部，准备显示加载动画
     await nextTick()
     scrollToBottom()
 
@@ -927,7 +1168,7 @@ const sendMessage = async () => {
       buffer = lines.pop() || ''
 
       for (const line of lines) {
-        // 解析事件类型
+        // 瑙ｆ瀽浜嬩欢绫诲瀷
         if (line.startsWith('event:')) {
           currentEvent = line.slice(6).trim()
           continue
@@ -939,92 +1180,75 @@ const sendMessage = async () => {
           if (!data || data === '') continue
 
           try {
-            // 处理不同类型的事件
             if (currentEvent === 'conversation') {
-              // 新创建的对话，更新 conversation_id
               const convData = JSON.parse(data)
               if (convData.conversation_id && !currentConversation.value) {
                 currentConversation.value = { id: convData.conversation_id }
-                console.log('📝 New conversation created:', convData.conversation_id)
-                // 刷新对话列表
+                console.log('New conversation created:', convData.conversation_id)
                 await loadConversations()
               }
             } else if (currentEvent === 'thinking') {
-              // 显示思考过程（可选：可以在 UI 中显示）
-              console.log('🤔 Agent thinking:', data)
-              // 第一次收到内容时，创建 assistant 消息
+              console.log('Agent thinking:', data)
               if (assistantMessageIndex === -1) {
                 isLoading.value = false
-                assistantMessageIndex = messages.value.length
-                messages.value.push({
-                  role: 'assistant',
-                  content: `<div class="agent-thinking">🤔 ${JSON.parse(data)}</div>`,
-                  time: getCurrentTime()
-                })
-                await nextTick()
-                scrollToBottom()
+                assistantMessageIndex = ensureAssistantMessage()
               }
+              appendAssistantArtifact(
+                assistantMessageIndex,
+                `<div class="agent-thinking">${escapeHtml(JSON.parse(data))}</div>`
+              )
+              await nextTick()
+              scrollToBottom()
             } else if (currentEvent === 'tool_call') {
-              // 显示工具调用
               const toolData = JSON.parse(data)
-              console.log('🔧 Tool call:', toolData)
+              console.log('Tool call:', toolData)
               if (assistantMessageIndex !== -1) {
-                const toolInfo = `<div class="agent-tool-call">🔧 调用工具: ${toolData.name}</div>`
-                messages.value[assistantMessageIndex].content += toolInfo
+                appendAssistantArtifact(
+                  assistantMessageIndex,
+                  `<div class="agent-tool-call">Calling tool: ${escapeHtml(toolData.name)}</div>`
+                )
                 await nextTick()
                 scrollToBottom()
               }
             } else if (currentEvent === 'papers') {
-              // 渲染论文卡片
               const papersData = JSON.parse(data)
-              console.log('📚 Papers result:', papersData)
+              console.log('Papers result:', papersData)
               if (assistantMessageIndex !== -1) {
-                const papersHtml = renderPapersCards(papersData)
-                messages.value[assistantMessageIndex].content += papersHtml
+                appendAssistantArtifact(assistantMessageIndex, renderPapersCards(papersData))
                 await nextTick()
                 scrollToBottom()
               }
+            } else if (currentEvent === 'mindmap') {
+              const mindmapData = JSON.parse(data)
+              console.log('Mindmap result:', mindmapData)
+              if (assistantMessageIndex !== -1) {
+                await appendAssistantMindmap(assistantMessageIndex, mindmapData)
+                scrollToBottom()
+              }
             } else if (currentEvent === 'token') {
-              // Token 级别流式输出 - 实时显示每个 token
               const tokenContent = JSON.parse(data)
               if (assistantMessageIndex === -1) {
                 isLoading.value = false
-                assistantMessageIndex = messages.value.length
-                messages.value.push({
-                  role: 'assistant',
-                  content: '',
-                  rawContent: '', // 存储原始文本用于 markdown 渲染
-                  time: getCurrentTime()
-                })
+                assistantMessageIndex = ensureAssistantMessage()
               }
-              // 累积原始文本
-              messages.value[assistantMessageIndex].rawContent = 
+              messages.value[assistantMessageIndex].rawContent =
                 (messages.value[assistantMessageIndex].rawContent || '') + tokenContent
               fullResponse = messages.value[assistantMessageIndex].rawContent
-              // 实时渲染 markdown
-              const latexRendered = renderLatex(fullResponse)
-              messages.value[assistantMessageIndex].content = marked(latexRendered)
+              messages.value[assistantMessageIndex].textHtml = marked(renderLatex(fullResponse))
+              syncAssistantMessageContent(assistantMessageIndex)
               await nextTick()
               scrollToBottom()
             } else if (currentEvent === 'answer' || currentEvent === 'answer_end') {
-              // 最终答案（完整答案或流式结束）
               if (currentEvent === 'answer') {
                 fullResponse = JSON.parse(data)
               }
-              // 如果之前没有流式输出，创建消息
               if (assistantMessageIndex === -1) {
                 isLoading.value = false
-                assistantMessageIndex = messages.value.length
-                messages.value.push({
-                  role: 'assistant',
-                  content: '',
-                  time: getCurrentTime()
-                })
+                assistantMessageIndex = ensureAssistantMessage()
               }
-              // 只有在有完整答案时才覆盖（非流式场景）
               if (fullResponse) {
-                const latexRendered = renderLatex(fullResponse)
-                messages.value[assistantMessageIndex].content = marked(latexRendered)
+                messages.value[assistantMessageIndex].textHtml = marked(renderLatex(fullResponse))
+                syncAssistantMessageContent(assistantMessageIndex)
               }
               await nextTick()
               scrollToBottom()
@@ -1032,25 +1256,18 @@ const sendMessage = async () => {
               const errorData = JSON.parse(data)
               throw new Error(errorData.error || 'Agent error')
             } else if (currentEvent === 'done') {
-              // 流式传输完成
-              console.log('✅ Agent done')
+              console.log('Agent done')
             }
           } catch (e) {
             if (e instanceof SyntaxError) {
-              // 尝试直接使用 data 字符串
               if (currentEvent === 'answer' && data) {
                 fullResponse = data
                 if (assistantMessageIndex === -1) {
                   isLoading.value = false
-                  assistantMessageIndex = messages.value.length
-                  messages.value.push({
-                    role: 'assistant',
-                    content: '',
-                    time: getCurrentTime()
-                  })
+                  assistantMessageIndex = ensureAssistantMessage()
                 }
-                const latexRendered = renderLatex(fullResponse)
-                messages.value[assistantMessageIndex].content = marked(latexRendered)
+                messages.value[assistantMessageIndex].textHtml = marked(renderLatex(fullResponse))
+                syncAssistantMessageContent(assistantMessageIndex)
                 await nextTick()
                 scrollToBottom()
               }
@@ -1058,17 +1275,15 @@ const sendMessage = async () => {
             }
             throw e
           }
+          }
         }
       }
-    }
 
-    // 刷新对话列表以更新消息数量
-    // 注意：消息已在 Agent Service 中自动保存，无需前端再次保存
+    // 鍒锋柊瀵硅瘽鍒楄〃浠ユ洿鏂版秷鎭暟閲?    // 娉ㄦ剰锛氭秷鎭凡鍦?Agent Service 涓嚜鍔ㄤ繚瀛橈紝鏃犻渶鍓嶇鍐嶆淇濆瓨
     if (fullResponse && assistantMessageIndex !== -1) {
       await loadConversations()
     }
 
-    // 确保加载状态关闭
     isLoading.value = false
 
   } catch (err) {
@@ -1117,10 +1332,9 @@ onMounted(async () => {
     inputTextarea.value.addEventListener('input', autoResize)
   }
 
-  // 加载对话列表
+  // 鍔犺浇瀵硅瘽鍒楄〃
   await loadConversations()
 
-  // 桌面端默认打开侧边栏
   if (window.innerWidth > 1024) {
     sidebarOpen.value = true
   }
@@ -1130,7 +1344,7 @@ onMounted(async () => {
     const workInfo = history.state?.workInfo
     if (workInfo) {
       // Add context banner
-      const contextMessage = `📚 Discussing paper: **${workInfo.title}**\n\n` +
+      const contextMessage = `馃摎 Discussing paper: **${workInfo.title}**\n\n` +
         `*Authors:* ${workInfo.authors}\n` +
         `*Year:* ${workInfo.year || 'N/A'}\n` +
         `*Citations:* ${workInfo.citations || 0}\n\n` +
@@ -1145,6 +1359,11 @@ onMounted(async () => {
       })
     }
   }
+})
+
+onBeforeUnmount(() => {
+  stopPaperLibraryPolling()
+  chatMindmapInstances.clear()
 })
 </script>
 
@@ -1383,6 +1602,32 @@ onMounted(async () => {
   gap: 20px;
 }
 
+.paper-upload-notice {
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  border: 1px solid var(--border-primary);
+  background: rgba(15, 23, 42, 0.82);
+  color: var(--text-primary);
+}
+
+.paper-upload-notice.success {
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+
+.paper-upload-notice.warning {
+  border-color: rgba(250, 204, 21, 0.35);
+  color: #fde68a;
+}
+
+.paper-upload-notice.error {
+  border-color: rgba(244, 63, 94, 0.35);
+  color: #fda4af;
+}
+
 .mobile-menu-btn {
   display: none;
   width: 36px;
@@ -1581,6 +1826,15 @@ onMounted(async () => {
   border-color: var(--accent-primary);
 }
 
+.paper-library-item.disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.paper-library-item.disabled:hover {
+  border-color: var(--border-primary);
+}
+
 .paper-library-title {
   color: var(--text-primary);
   font-weight: 600;
@@ -1594,9 +1848,62 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+.paper-library-notice {
+  color: #fde68a;
+  font-size: 13px;
+  padding: 16px 24px 0;
+}
+
 .paper-library-subtitle,
 .paper-library-id {
   margin-top: 6px;
+}
+
+.paper-library-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.paper-library-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.paper-library-status-badge.uploaded {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.paper-library-status-badge.indexing {
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, 0.28);
+}
+
+.paper-library-status-badge.indexed {
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.paper-library-status-badge.failed {
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.28);
+}
+
+.paper-library-status-text {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .paper-library-empty,
@@ -2669,6 +2976,69 @@ onMounted(async () => {
   font-size: 14px;
 }
 
+.message-text :deep(.mindmap-card) {
+  margin: 20px 0;
+  padding: 18px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(14, 22, 48, 0.96), rgba(10, 16, 36, 0.96));
+  border: 1px solid var(--border-primary);
+}
+
+.message-text :deep(.mindmap-card-header) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.message-text :deep(.mindmap-card-title) {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.message-text :deep(.mindmap-card-subtitle) {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.message-text :deep(.mindmap-card-body) {
+  overflow-x: auto;
+}
+
+.message-text :deep(.chat-jsmind-container) {
+  width: 100%;
+  min-width: 720px;
+  height: 520px;
+  overflow: auto;
+  position: relative;
+  background: #ffffff;
+  border-radius: 14px;
+}
+
+.message-text :deep(.chat-jsmind-container .jsmind-inner) {
+  background: #ffffff;
+  font-family: "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
+  width: 100%;
+  height: 100%;
+}
+
+.message-text :deep(.chat-jsmind-container jmnode) {
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.message-text :deep(.chat-jsmind-container jmnode:hover) {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
+}
+
 /* Responsive for papers */
 @media (max-width: 768px) {
   .message-text :deep(.papers-grid) {
@@ -2761,6 +3131,10 @@ onMounted(async () => {
     padding: 18px 0 0;
   }
 
+  .paper-upload-notice {
+    width: min(100% - 40px, 920px);
+  }
+
   .chat-messages {
     width: min(100% - 40px, 920px);
     padding: 0 0 20px;
@@ -2785,6 +3159,10 @@ onMounted(async () => {
     width: calc(100% - 32px);
     padding: 14px 0 0;
     gap: 14px;
+  }
+
+  .paper-upload-notice {
+    width: calc(100% - 32px);
   }
 
   .header-actions {
@@ -2908,3 +3286,4 @@ onMounted(async () => {
   background: var(--accent-secondary);
 }
 </style>
+

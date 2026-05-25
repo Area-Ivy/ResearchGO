@@ -121,7 +121,7 @@ class GenerateMindmapTool(BaseTool):
                 success=True,
                 data={
                     "paper_id": object_name,
-                    "mindmap": data.get("mindmap"),
+                    "mindmap_data": data.get("mindmap_data") or data.get("mindmap"),
                     "message": "Mindmap generated successfully."
                 }
             )

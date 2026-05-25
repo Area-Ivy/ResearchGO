@@ -29,6 +29,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/vector", tags=["vector-search"])
+MAX_INDEX_CHUNKS = 60
 
 
 @router.post("/search", response_model=SemanticSearchResponse)
@@ -661,4 +662,3 @@ async def health_check():
         "milvus_connected": True,
         "features": ["dense_search", "sparse_search", "hybrid_search", "reranker", "query_translation", "structured_indexing"]
     }
-

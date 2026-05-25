@@ -228,6 +228,20 @@ class ResearchMcpRegistry:
     def _error(message: str) -> McpToolResult:
         return McpToolResult(content=[{"type": "text", "text": message}], structuredContent={"error": message}, isError=True)
 
+    @staticmethod
+    def _normalize_user_paper(paper: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": paper.get("id"),
+            "paper_id": paper.get("object_name"),
+            "object_name": paper.get("object_name"),
+            "filename": paper.get("original_name") or paper.get("original_filename") or paper.get("filename"),
+            "title": paper.get("title"),
+            "authors": paper.get("authors"),
+            "year": paper.get("year"),
+            "upload_time": paper.get("upload_time") or paper.get("created_at"),
+            "size": paper.get("file_size") or paper.get("size"),
+        }
+
     async def _search_literature(self, arguments: Dict[str, Any], context: ToolContext) -> McpToolResult:
         payload = {"query": arguments["query"], "sort": arguments.get("sort", "relevance"), "per_page": arguments.get("limit", 10)}
         for key in ("year_from", "year_to", "open_access"):
@@ -279,19 +293,56 @@ class ResearchMcpRegistry:
         return self._ok({"format": citation_format, "citation": data.get("citation")})
 
     async def _search_user_papers(self, arguments: Dict[str, Any], context: ToolContext) -> McpToolResult:
-        params = {}
-        if arguments.get("query"):
-            params["search"] = arguments["query"]
-        data = await self._request("GET", "paper-storage-service", "/api/papers/", context=context, params=params)
-        papers = []
-        for paper in data.get("papers", data if isinstance(data, list) else []):
-            papers.append({"id": paper.get("id"), "filename": paper.get("original_filename") or paper.get("filename"), "title": paper.get("title"), "upload_time": paper.get("upload_time") or paper.get("created_at"), "size": paper.get("file_size")})
-        return self._ok({"query": arguments.get("query"), "count": len(papers), "papers": papers})
+        query = (arguments.get("query") or "").strip()
+        params = {"skip": 0, "limit": 200}
+        data = await self._request("GET", "paper-storage-service", "/api/papers/list", context=context, params=params)
+        raw_papers = data.get("papers", data if isinstance(data, list) else [])
+
+        normalized_papers = [self._normalize_user_paper(paper) for paper in raw_papers]
+        if query:
+            query_lower = query.lower()
+            normalized_papers = [
+                paper for paper in normalized_papers
+                if query_lower in (paper.get("title") or "").lower()
+                or query_lower in (paper.get("filename") or "").lower()
+                or query_lower in (paper.get("paper_id") or "").lower()
+                or query_lower in (paper.get("authors") or "").lower()
+            ]
+
+        return self._ok({"query": query, "count": len(normalized_papers), "papers": normalized_papers})
 
     async def _get_paper_content(self, arguments: Dict[str, Any], context: ToolContext) -> McpToolResult:
         paper_id = arguments["paper_id"]
-        data = await self._request("GET", "paper-storage-service", f"/api/papers/{paper_id}", context=context)
-        return self._ok({"paper_id": paper_id, "filename": data.get("original_filename"), "title": data.get("title"), "note": "Use semantic_search or ask_about_paper to retrieve grounded content."})
+        data = await self._request(
+            "GET",
+            "paper-storage-service",
+            "/api/papers/list",
+            context=context,
+            params={"skip": 0, "limit": 200},
+        )
+        raw_papers = data.get("papers", data if isinstance(data, list) else [])
+        normalized_papers = [self._normalize_user_paper(paper) for paper in raw_papers]
+
+        matched_paper = next(
+            (
+                paper for paper in normalized_papers
+                if paper.get("paper_id") == paper_id
+                or str(paper.get("id")) == str(paper_id)
+            ),
+            None,
+        )
+
+        if not matched_paper:
+            return self._error(f"Paper not found in the current user's library: {paper_id}")
+
+        return self._ok({
+            "paper_id": matched_paper.get("paper_id"),
+            "filename": matched_paper.get("filename"),
+            "title": matched_paper.get("title"),
+            "authors": matched_paper.get("authors"),
+            "year": matched_paper.get("year"),
+            "note": "Use semantic_search or ask_about_paper to retrieve grounded content.",
+        })
 
     async def _semantic_search(self, arguments: Dict[str, Any], context: ToolContext) -> McpToolResult:
         top_k = arguments.get("top_k", 5)
@@ -321,7 +372,11 @@ class ResearchMcpRegistry:
         if not paper_id:
             return self._error("paper_id is required for mindmap generation")
         data = await self._request("POST", "mindmap-service", "/api/mindmap/generate", context=context, json_body={"object_name": paper_id}, timeout=90.0)
-        return self._ok({"paper_id": paper_id, "mindmap": data.get("mindmap"), "message": "Mindmap generated successfully."})
+        return self._ok({
+            "paper_id": paper_id,
+            "mindmap_data": data.get("mindmap_data") or data.get("mindmap"),
+            "message": "Mindmap generated successfully.",
+        })
 
     async def _compare_papers(self, arguments: Dict[str, Any], context: ToolContext) -> McpToolResult:
         paper_names = arguments.get("paper_names") or []

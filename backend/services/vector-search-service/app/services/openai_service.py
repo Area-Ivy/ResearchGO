@@ -31,13 +31,16 @@ class OpenAIService:
         
         self.default_model = os.getenv('OPENAI_MODEL', 'gpt-4o')
         self.embedding_model = os.getenv('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small')
+        self.embedding_batch_size = max(1, int(os.getenv('OPENAI_EMBEDDING_BATCH_SIZE', '20')))
         logger.info(f"Using chat model: {self.default_model}")
         logger.info(f"Using embedding model: {self.embedding_model}")
+        logger.info(f"Using embedding batch size: {self.embedding_batch_size}")
     
     async def generate_embeddings(
         self,
         texts: List[str],
-        model: str = None
+        model: str = None,
+        batch_size: int = None
     ) -> List[List[float]]:
         """
         生成文本嵌入向量
@@ -50,12 +53,26 @@ class OpenAIService:
             List[List[float]]: 嵌入向量列表
         """
         try:
-            response = await self.client.embeddings.create(
-                model=model or self.embedding_model,
-                input=texts
-            )
-            
-            embeddings = [item.embedding for item in response.data]
+            if not texts:
+                return []
+
+            effective_batch_size = max(1, batch_size or self.embedding_batch_size)
+            embeddings = []
+
+            for start in range(0, len(texts), effective_batch_size):
+                batch = texts[start:start + effective_batch_size]
+                response = await self.client.embeddings.create(
+                    model=model or self.embedding_model,
+                    input=batch
+                )
+                embeddings.extend(item.embedding for item in response.data)
+                logger.info(
+                    "Generated embeddings batch %s-%s of %s",
+                    start + 1,
+                    start + len(batch),
+                    len(texts)
+                )
+
             logger.info(f"Generated {len(embeddings)} embeddings")
             return embeddings
             
