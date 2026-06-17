@@ -3,8 +3,9 @@
     <!-- Header -->
     <div class="review-header">
       <div class="header-section">
-        <h1 class="page-title">Paper Analysis Workspace</h1>
-        <p class="page-subtitle">AI-powered multi-dimensional paper understanding system</p>
+        <p class="eyebrow">Paper Review</p>
+        <h1>Analysis workspace</h1>
+        <p class="subtitle">AI-powered multi-dimensional paper understanding.</p>
       </div>
       <div class="header-actions">
         <button 
@@ -336,41 +337,6 @@
             </div>
           </div>
 
-          <!-- Citation Graph -->
-          <div v-show="activeTab === 'graph'" class="feature-view">
-            <div class="feature-header">
-              <div class="feature-title">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="2"></circle>
-                  <circle cx="6" cy="6" r="2"></circle>
-                  <circle cx="18" cy="6" r="2"></circle>
-                  <circle cx="6" cy="18" r="2"></circle>
-                  <circle cx="18" cy="18" r="2"></circle>
-                </svg>
-                <h3>Citation Graph</h3>
-                <span class="badge badge-secondary">Coming Soon</span>
-              </div>
-            </div>
-            <div class="feature-body">
-              <div class="empty-state">
-                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.3;">
-                  <circle cx="12" cy="12" r="3"></circle>
-                  <circle cx="6" cy="6" r="2"></circle>
-                  <circle cx="18" cy="6" r="2"></circle>
-                  <circle cx="6" cy="18" r="2"></circle>
-                  <circle cx="18" cy="18" r="2"></circle>
-                  <path d="M12 9V6"></path>
-                  <path d="M10.5 10.5 6 6"></path>
-                  <path d="M13.5 10.5 18 6"></path>
-                  <path d="M10.5 13.5 6 18"></path>
-                  <path d="M13.5 13.5 18 18"></path>
-                </svg>
-                <h3>Coming Soon</h3>
-                <p>Citation relationship visualization feature is under development...</p>
-              </div>
-            </div>
-          </div>
-
           <!-- AI Assistant -->
           <div v-show="activeTab === 'assistant'" class="feature-view">
             <div class="feature-header">
@@ -424,21 +390,7 @@
                       </svg>
                     </div>
                     <h4>Hello! I'm your AI Assistant</h4>
-                    <p>I can help you understand this paper. You can ask me:</p>
-                    <div class="example-questions">
-                      <button @click="currentQuestion = 'What is the main research content of this paper?'" class="example-question">
-                        📄 What is the main research content of this paper?
-                      </button>
-                      <button @click="currentQuestion = 'What are the innovations of this paper?'" class="example-question">
-                        💡 What are the innovations of this paper?
-                      </button>
-                      <button @click="currentQuestion = 'What research methods does this paper use?'" class="example-question">
-                        🔬 What research methods does this paper use?
-                      </button>
-                      <button @click="currentQuestion = 'What are the conclusions of this paper?'" class="example-question">
-                        ✅ What are the conclusions of this paper?
-                      </button>
-                    </div>
+                    <p>I can help you understand this paper.</p>
                   </div>
 
                   <!-- Message Bubbles -->
@@ -555,10 +507,12 @@
 </template>
 
 <script>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { listPapers, downloadPaper, paperQA } from '../api/papers'
 import { generateMindmap as generateMindmapAPI } from '../api/mindmap'
 import { generateAnalysis as generateAnalysisAPI } from '../api/analysis'
+import { PAPER_STORAGE_SERVICE_URL, VECTOR_SEARCH_SERVICE_URL } from '../config'
 import jsMind from 'jsmind'
 import 'jsmind/style/jsmind.css'
 import { marked } from 'marked'
@@ -587,6 +541,7 @@ marked.setOptions({
 export default {
   name: 'PaperReview',
   setup() {
+    const route = useRoute()
     // 状态管理
     const loading = ref(false)
     const papers = ref([])
@@ -607,32 +562,16 @@ export default {
           <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
         </svg>`
       },
-      { 
-        id: 'analysis', 
-        label: 'Analysis',
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 3v18h18"></path>
-          <path d="m19 9-5 5-4-4-3 3"></path>
-        </svg>`
-      },
-      { 
-        id: 'graph', 
-        label: 'Citation Graph',
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="2"></circle>
-          <circle cx="6" cy="6" r="2"></circle>
-          <circle cx="18" cy="6" r="2"></circle>
-          <circle cx="6" cy="18" r="2"></circle>
-          <circle cx="18" cy="18" r="2"></circle>
-          <line x1="12" y1="14" x2="12" y2="10"></line>
-          <line x1="10.5" y1="10.5" x2="7.5" y2="7.5"></line>
-          <line x1="13.5" y1="10.5" x2="16.5" y2="7.5"></line>
-          <line x1="10.5" y1="13.5" x2="7.5" y2="16.5"></line>
-          <line x1="13.5" y1="13.5" x2="16.5" y2="16.5"></line>
-        </svg>`
-      },
-      { 
-        id: 'assistant', 
+        { 
+          id: 'analysis', 
+          label: 'Analysis',
+          icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 3v18h18"></path>
+            <path d="m19 9-5 5-4-4-3 3"></path>
+          </svg>`
+        },
+        { 
+          id: 'assistant', 
         label: 'AI Assistant',
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -666,6 +605,12 @@ export default {
       try {
         const response = await listPapers()
         papers.value = response.papers || []
+        if (route.query.paperId && !selectedPaper.value) {
+          const matchedPaper = papers.value.find(paper => paper.object_name === route.query.paperId)
+          if (matchedPaper) {
+            selectPaper(matchedPaper)
+          }
+        }
       } catch (error) {
         console.error('Failed to load papers:', error)
         alert('Failed to load papers list')
@@ -680,7 +625,7 @@ export default {
       showPaperList.value = false
       // Use paper storage service view endpoint
       const token = localStorage.getItem('token')
-      pdfUrl.value = `http://localhost:8003/api/papers/view/${paper.object_name}?token=${token}`
+      pdfUrl.value = `${PAPER_STORAGE_SERVICE_URL}/api/papers/view/${paper.object_name}?token=${token}`
     }
 
     // 重置选择
@@ -950,7 +895,7 @@ export default {
         
         // Call vector search service streaming API
         const token = localStorage.getItem('token')
-        const response = await fetch('http://localhost:8004/api/vector/qa-stream', {
+        const response = await fetch(`${VECTOR_SEARCH_SERVICE_URL}/api/vector/qa-stream`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -959,8 +904,7 @@ export default {
           body: JSON.stringify({
             paper_id: selectedPaper.value.object_name,
             question: question,
-            chat_history: history,
-            top_k: 10
+            chat_history: history
           })
         })
         
@@ -1174,6 +1118,17 @@ export default {
       loadPapers()
     })
 
+    watch(
+      () => route.query.paperId,
+      (paperId) => {
+        if (!paperId) return
+        const matchedPaper = papers.value.find(paper => paper.object_name === paperId)
+        if (matchedPaper && matchedPaper.object_name !== selectedPaper.value?.object_name) {
+          selectPaper(matchedPaper)
+        }
+      }
+    )
+
     onUnmounted(() => {
       // 清理思维导图
       if (jsMindInstance) {
@@ -1217,11 +1172,11 @@ export default {
 
 <style scoped>
 .review-container {
-  max-width: 1600px;
-  margin: 0 auto;
-  height: calc(100vh - 64px);
+  width: 100%;
+  height: calc(100vh - 68px);
   display: flex;
   flex-direction: column;
+  color: var(--text-primary);
 }
 
 /* Header */
@@ -1229,12 +1184,35 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 24px;
-  gap: 24px;
+  margin-bottom: 28px;
+  gap: 18px;
 }
 
 .header-section {
   flex: 1;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.review-header h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 34px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 15px;
 }
 
 .header-actions {
@@ -2608,4 +2586,3 @@ export default {
   100% { transform: rotate(360deg); }
 }
 </style>
-

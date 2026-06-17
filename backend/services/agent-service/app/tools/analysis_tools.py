@@ -52,7 +52,7 @@ class AnalyzePaperTool(BaseTool):
                 headers["Authorization"] = f"Bearer {token}"
 
             response = await self.http_client.post(
-                f"{ANALYSIS_SERVICE_URL}/api/analysis/analyze",
+                f"{ANALYSIS_SERVICE_URL}/api/analysis/generate",
                 json={"object_name": object_name},
                 headers=headers,
                 timeout=120.0
@@ -122,7 +122,7 @@ class GenerateMindmapTool(BaseTool):
                 data={
                     "paper_id": object_name,
                     "mindmap_data": data.get("mindmap_data") or data.get("mindmap"),
-                    "message": "Mindmap generated successfully."
+                    "message": "Mindmap generated successfully. Do not output any image URLs, markdown links, placeholder links, or download links. The UI will render the visual mindmap directly."
                 }
             )
         except Exception as e:

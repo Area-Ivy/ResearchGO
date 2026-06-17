@@ -4,6 +4,8 @@ from .paper import (
     PaperListResponse,
     DeleteResponse,
     PaperStatusResponse,
+    PaperStatsResponse,
+    WeeklyCount,
 )
 
 __all__ = [
@@ -12,5 +14,7 @@ __all__ = [
     "PaperListResponse",
     "DeleteResponse",
     "PaperStatusResponse",
+    "PaperStatsResponse",
+    "WeeklyCount",
 ]
 

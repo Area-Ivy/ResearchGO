@@ -110,6 +110,30 @@ class SemanticMemoryService:
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
+    def get_memory_file_info(self, user_id: str) -> Dict[str, Any]:
+        path = self._memory_path(user_id)
+        updated_at = None
+        if path.exists():
+            updated_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).replace(microsecond=0).isoformat()
+        return {
+            "exists": path.exists(),
+            "file_name": path.name,
+            "updated_at": updated_at,
+        }
+
+    def get_memory_markdown(self, user_id: str) -> str:
+        path = self._memory_path(user_id)
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        return self._render_markdown(user_id, [])
+
+    def save_memory_markdown(self, user_id: str, content: str) -> None:
+        self._ensure_memory_dir()
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not normalized:
+            normalized = self._render_markdown(user_id, []).strip()
+        self._memory_path(user_id).write_text(normalized + "\n", encoding="utf-8")
+
     def _normalize_text(self, text: str) -> str:
         return re.sub(r"\s+", " ", text.strip().lower())
 
@@ -204,10 +228,50 @@ class SemanticMemoryService:
 
         return "\n".join(lines).strip() + "\n"
 
+    def _render_entry(self, memory: Memory) -> str:
+        metadata = self._serialize_metadata(memory.metadata)
+        meta_suffix = f" | metadata={metadata}" if metadata else ""
+        return f"- [{memory.created_at} | importance={memory.importance:.2f}{meta_suffix}] {memory.content}"
+
     def _save_memories(self, user_id: str, memories: List[Memory]) -> None:
         self._ensure_memory_dir()
         rendered = self._render_markdown(user_id, memories)
         self._memory_path(user_id).write_text(rendered, encoding="utf-8")
+
+    def _append_memory_entry(self, user_id: str, memory: Memory) -> None:
+        self._ensure_memory_dir()
+        path = self._memory_path(user_id)
+        content = self.get_memory_markdown(user_id)
+        lines = content.rstrip("\n").splitlines()
+        section_title = f"## {SECTION_TITLES[memory.memory_type]}"
+        entry = self._render_entry(memory)
+
+        if section_title not in lines:
+            if lines and lines[-1].strip():
+                lines.append("")
+            lines.extend([section_title, entry, ""])
+            path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+            return
+
+        section_index = lines.index(section_title)
+        next_section_index = next(
+            (index for index in range(section_index + 1, len(lines)) if lines[index].startswith("## ")),
+            len(lines),
+        )
+        section_lines = lines[section_index + 1 : next_section_index]
+        section_lines = [line for line in section_lines if line.strip() != "- None"]
+
+        insert_at = next_section_index
+        while insert_at > section_index + 1 and not lines[insert_at - 1].strip():
+            insert_at -= 1
+
+        lines = lines[: section_index + 1] + section_lines + lines[next_section_index:]
+        insert_at = section_index + 1 + len(section_lines)
+        if insert_at < len(lines) and lines[insert_at].strip():
+            lines.insert(insert_at, "")
+        lines.insert(insert_at, entry)
+
+        path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
 
     def _extract_json(self, text: str) -> Dict[str, Any]:
         cleaned = text.strip()
@@ -369,7 +433,10 @@ If nothing is worth storing, return:
                 metadata=metadata or {},
             )
             memories, created = self._merge_memory(memories, incoming)
-            self._save_memories(user_id, memories)
+            if created:
+                self._append_memory_entry(user_id, incoming)
+            elif not self._memory_path(user_id).exists():
+                self._save_memories(user_id, memories)
             logger.info("%s semantic memory for user %s: %s", "Stored" if created else "Updated", user_id, memory_type.value)
             return True
         except Exception as exc:
@@ -406,6 +473,19 @@ If nothing is worth storing, return:
         current_query: str,
         token: Optional[str],
     ) -> str:
+        raw_markdown = self.get_memory_markdown(user_id).strip()
+        has_user_content = any(
+            line.strip()
+            and not line.startswith("#")
+            and not line.startswith("- User ID:")
+            and not line.startswith("- Updated At:")
+            and not line.startswith("- Total Entries:")
+            and line.strip() != "- None"
+            for line in raw_markdown.splitlines()
+        )
+        if has_user_content:
+            return raw_markdown[:12000]
+
         memories = await self.recall_relevant(user_id=user_id, query=current_query, token=token)
         if not memories:
             return ""

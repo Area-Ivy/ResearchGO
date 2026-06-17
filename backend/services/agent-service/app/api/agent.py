@@ -9,6 +9,7 @@ Agent API Endpoints
 import json
 import logging
 import os
+import base64
 from typing import Optional, Union, List
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -69,6 +70,24 @@ def _extract_text_payload(payload) -> str:
     return str(payload)
 
 
+def _encode_mindmap_artifacts(mindmaps: List[dict]) -> str:
+    if not mindmaps:
+        return ""
+    payload = base64.b64encode(
+        json.dumps(mindmaps, ensure_ascii=False).encode("utf-8")
+    ).decode("ascii")
+    return f"\n<!--RESEARCHGO_MINDMAP:{payload}-->"
+
+
+def _encode_analysis_artifacts(analyses: List[dict]) -> str:
+    if not analyses:
+        return ""
+    payload = base64.b64encode(
+        json.dumps(analyses, ensure_ascii=False).encode("utf-8")
+    ).decode("ascii")
+    return f"\n<!--RESEARCHGO_ANALYSIS:{payload}-->"
+
+
 def generate_title_from_message(message: str, max_length: int = 30) -> str:
     """从消息内容生成对话标题"""
     title = message.replace("\n", " ").strip()
@@ -123,6 +142,8 @@ async def agent_chat(
         async def event_generator():
             final_answer = ""
             streamed_answer_chunks: List[str] = []
+            collected_mindmaps: List[dict] = []
+            collected_analyses: List[dict] = []
             
             try:
                 # 发送 conversation_id（如果是新创建的）
@@ -154,6 +175,10 @@ async def agent_chat(
                         token_chunk = _extract_text_payload(event.data)
                         if token_chunk:
                             streamed_answer_chunks.append(token_chunk)
+                    elif event.event == "mindmap" and isinstance(event.data, dict):
+                        collected_mindmaps.append(event.data)
+                    elif event.event == "analysis" and isinstance(event.data, dict):
+                        collected_analyses.append(event.data)
                     elif event.event == "answer_end" and not final_answer and streamed_answer_chunks:
                         final_answer = "".join(streamed_answer_chunks)
                     
@@ -165,11 +190,16 @@ async def agent_chat(
                 if not final_answer and streamed_answer_chunks:
                     final_answer = "".join(streamed_answer_chunks)
                 final_answer = final_answer.strip()
+                persisted_answer = (
+                    final_answer
+                    + _encode_mindmap_artifacts(collected_mindmaps)
+                    + _encode_analysis_artifacts(collected_analyses)
+                )
                 
                 # 追加 AI 回复到缓存（同步快速 + 异步持久化）
-                if token and conversation_id and final_answer:
+                if token and conversation_id and persisted_answer:
                     await cache.append_message(
-                        conversation_id, "assistant", final_answer, token
+                        conversation_id, "assistant", persisted_answer, token
                     )
                     
             except Exception as e:

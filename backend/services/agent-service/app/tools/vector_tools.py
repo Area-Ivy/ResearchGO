@@ -34,7 +34,7 @@ class SemanticSearchTool(BaseTool):
     async def execute(
         self,
         query: str,
-        top_k: int = 5,
+        top_k: Optional[int] = None,
         token: str = None,
         **kwargs
     ) -> ToolResult:
@@ -43,9 +43,13 @@ class SemanticSearchTool(BaseTool):
             if token:
                 headers["Authorization"] = f"Bearer {token}"
 
+            payload = {"query": query}
+            if top_k is not None:
+                payload["top_k"] = top_k
+
             response = await self.http_client.post(
                 f"{VECTOR_SEARCH_SERVICE_URL}/api/vector/search",
-                json={"query": query, "top_k": top_k},
+                json=payload,
                 headers=headers
             )
             response.raise_for_status()

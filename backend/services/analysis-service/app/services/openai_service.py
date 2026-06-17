@@ -37,7 +37,7 @@ class OpenAIService:
             logger.error(f"Failed to initialize OpenAI client: {str(e)}")
             raise
         
-        self.default_model = os.getenv('OPENAI_MODEL', 'gpt-4o')
+        self.default_model = os.getenv('OPENAI_MODEL', 'qwen-max')
         logger.info(f"Using model: {self.default_model}")
     
     async def chat_completion(
@@ -79,7 +79,7 @@ class OpenAIService:
             
         except Exception as e:
             logger.error(f"Error in chat completion: {str(e)}")
-            return f"[Error: {str(e)}]"
+            raise
 
 
 # 单例服务实例

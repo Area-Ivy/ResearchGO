@@ -12,6 +12,7 @@ ENV/
 # Node
 node_modules/
 dist/
+dist-*/
 .DS_Store
 
 # 数据目录
@@ -37,6 +38,12 @@ docker-compose.override.yml
 # 日志
 *.log
 logs/
+
+# Local build/deploy artifacts
+.codex_tmp/
+outputs/
+*.tar.gz
+*.zip
 
 # 操作系统
 .DS_Store

@@ -3,8 +3,9 @@
     <!-- Header -->
     <div class="library-header">
       <div class="header-section">
-        <h1 class="page-title">Paper Library</h1>
-        <p class="page-subtitle">AI-powered semantic search for your research papers</p>
+        <p class="eyebrow">Paper Library</p>
+        <h1>Research library</h1>
+        <p class="subtitle">AI-powered semantic search for your research papers.</p>
       </div>
       <div class="header-actions">
         <div class="search-container">
@@ -314,6 +315,12 @@
             </div>
           </div>
           <div class="paper-actions">
+            <button @click="openRenameModal(paper)" class="action-btn rename-btn" title="Rename">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 20h9"></path>
+                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+              </svg>
+            </button>
             <button @click="handleDownload(paper)" class="action-btn download-btn" title="Download">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -359,11 +366,49 @@
         </div>
       </div>
     </transition>
+
+    <!-- Rename Modal -->
+    <transition name="modal">
+      <div v-if="showRenameModal" class="modal-overlay" @click="closeRenameModal">
+        <div class="modal-content" @click.stop>
+          <div class="modal-header">
+            <h3>Rename Paper</h3>
+            <button @click="closeRenameModal" class="modal-close">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <form @submit.prevent="handleRename">
+            <div class="modal-body">
+              <label class="rename-label" for="rename-input">Name</label>
+              <input
+                id="rename-input"
+                ref="renameInput"
+                v-model="renameValue"
+                class="rename-input"
+                type="text"
+                maxlength="500"
+              />
+              <p v-if="renameError" class="rename-error">{{ renameError }}</p>
+              <p class="paper-name-preview">{{ paperToRename?.original_name }}</p>
+            </div>
+            <div class="modal-actions">
+              <button type="button" @click="closeRenameModal" class="btn-secondary">Cancel</button>
+              <button type="submit" class="btn-primary-action" :disabled="isRenaming">
+                {{ isRenaming ? 'Saving...' : 'Save' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script>
-import { uploadPaper, listPapers, downloadPaper, deletePaper } from '../api/papers'
+import { uploadPaper, listPapers, downloadPaper, deletePaper, renamePaper } from '../api/papers'
 import { semanticSearch, groupResultsByPaper, formatRelevance, generateCitation } from '../api/search'
 
 export default {
@@ -375,10 +420,15 @@ export default {
       isLoading: false,
       isUploading: false,
       isDeleting: false,
+      isRenaming: false,
       uploadError: null,
       uploadSuccessMessage: '',
       showDeleteModal: false,
+      showRenameModal: false,
       paperToDelete: null,
+      paperToRename: null,
+      renameValue: '',
+      renameError: '',
       pollTimerId: null,
       // 搜索相关
       isSearching: false,
@@ -406,12 +456,13 @@ export default {
       
       for (const result of this.searchResults) {
         const paperId = result.paper_id
+        const localPaper = this.papers.find(p => p.object_name === paperId)
         
         if (!papersMap[paperId]) {
           papersMap[paperId] = {
             paper_id: paperId,
-            file_name: result.file_name,
-            title: result.title,
+            file_name: localPaper?.original_name || result.file_name,
+            title: localPaper?.title || result.title,
             upload_time: result.upload_time,
             matched_chunks: 0,
             max_relevance: result.relevance_score,
@@ -647,6 +698,53 @@ export default {
         alert('Failed to download file')
       }
     },
+    openRenameModal(paper) {
+      this.paperToRename = paper
+      this.renameValue = paper.original_name || ''
+      this.renameError = ''
+      this.showRenameModal = true
+      this.$nextTick(() => {
+        this.$refs.renameInput?.focus()
+        this.$refs.renameInput?.select()
+      })
+    },
+    closeRenameModal() {
+      if (this.isRenaming) return
+      this.showRenameModal = false
+      this.paperToRename = null
+      this.renameValue = ''
+      this.renameError = ''
+    },
+    async handleRename() {
+      if (!this.paperToRename) return
+
+      const nextName = this.renameValue.trim()
+      if (!nextName) {
+        this.renameError = 'Name cannot be empty.'
+        return
+      }
+
+      this.isRenaming = true
+      this.renameError = ''
+      try {
+        const updatedPaper = await renamePaper(this.paperToRename.object_name, nextName)
+        const index = this.papers.findIndex(p => p.object_name === updatedPaper.object_name)
+        if (index >= 0) {
+          this.papers.splice(index, 1, updatedPaper)
+        } else {
+          this.papers.unshift(updatedPaper)
+        }
+        this.showSuccessMessage('Paper renamed.', 2500)
+        this.showRenameModal = false
+        this.paperToRename = null
+        this.renameValue = ''
+      } catch (error) {
+        console.error('Rename failed:', error)
+        this.renameError = error.response?.data?.detail || 'Failed to rename paper.'
+      } finally {
+        this.isRenaming = false
+      }
+    },
     confirmDelete(paper) {
       this.paperToDelete = paper
       this.showDeleteModal = true
@@ -721,20 +819,44 @@ export default {
 
 <style scoped>
 .paper-library {
-  max-width: 1600px;
-  margin: 0 auto;
+  width: 100%;
+  min-height: calc(100vh - 68px);
+  color: var(--text-primary);
 }
 
 .library-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 32px;
-  gap: 24px;
+  margin-bottom: 28px;
+  gap: 18px;
 }
 
 .header-section {
   flex: 1;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.library-header h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 34px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 15px;
 }
 
 .header-actions {
@@ -1220,6 +1342,12 @@ export default {
   box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
 }
 
+.rename-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  box-shadow: var(--glow-primary);
+}
+
 .delete-btn:hover {
   border-color: var(--accent-danger);
   color: var(--accent-danger);
@@ -1311,6 +1439,38 @@ export default {
   font-size: 13px;
 }
 
+.rename-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rename-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.rename-input:focus {
+  border-color: var(--border-glow);
+  box-shadow: var(--glow-primary);
+}
+
+.rename-error {
+  margin-top: 10px;
+  color: var(--accent-danger);
+  font-size: 13px;
+}
+
 .modal-actions {
   display: flex;
   gap: 12px;
@@ -1320,7 +1480,8 @@ export default {
 }
 
 .btn-secondary,
-.btn-danger {
+.btn-danger,
+.btn-primary-action {
   padding: 10px 24px;
   border-radius: 8px;
   font-weight: 500;
@@ -1351,6 +1512,22 @@ export default {
 }
 
 .btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary-action {
+  background: var(--gradient-primary);
+  border: none;
+  color: white;
+}
+
+.btn-primary-action:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 0 30px rgba(102, 126, 234, 0.45);
+}
+
+.btn-primary-action:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

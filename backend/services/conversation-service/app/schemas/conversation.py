@@ -60,3 +60,16 @@ class ConversationListResponse(BaseModel):
     total: int
     conversations: List[ConversationResponse]
 
+
+class WeeklyCount(BaseModel):
+    label: str
+    value: int
+    start: str
+    end: str
+
+
+class ConversationStatsResponse(BaseModel):
+    total: int
+    messages_this_month: int
+    weekly_messages: List[WeeklyCount] = []
+

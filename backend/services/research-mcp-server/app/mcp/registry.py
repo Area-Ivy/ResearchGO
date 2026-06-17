@@ -364,7 +364,7 @@ class ResearchMcpRegistry:
         paper_id = arguments.get("paper_id") or arguments.get("paper_name")
         if not paper_id:
             return self._error("paper_id is required for paper analysis")
-        data = await self._request("POST", "analysis-service", "/api/analysis/analyze", context=context, json_body={"object_name": paper_id}, timeout=120.0)
+        data = await self._request("POST", "analysis-service", "/api/analysis/generate", context=context, json_body={"object_name": paper_id}, timeout=120.0)
         return self._ok({"paper_id": paper_id, "analysis": data.get("analysis")})
 
     async def _generate_mindmap(self, arguments: Dict[str, Any], context: ToolContext) -> McpToolResult:

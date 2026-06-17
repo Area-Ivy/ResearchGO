@@ -1,10 +1,5 @@
-# Traefik 动态配置 - 微服务路由
-# ResearchGO API Gateway
-
 http:
-  # ============ 路由规则 ============
   routers:
-    # Agent 服务 (核心)
     agent-router:
       rule: "PathPrefix(`/api/agent`)"
       service: agent-service
@@ -13,7 +8,30 @@ http:
       middlewares:
         - cors-headers
 
-    # 认证服务
+    memory-router:
+      rule: "PathPrefix(`/api/memory`)"
+      service: agent-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors-headers
+
+    dashboard-router:
+      rule: "PathPrefix(`/api/dashboard`)"
+      service: agent-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors-headers
+
+    system-router:
+      rule: "PathPrefix(`/api/system`)"
+      service: agent-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors-headers
+
     auth-router:
       rule: "PathPrefix(`/api/auth`)"
       service: auth-service
@@ -22,7 +40,6 @@ http:
       middlewares:
         - cors-headers
 
-    # 对话服务
     conversation-router:
       rule: "PathPrefix(`/api/conversations`)"
       service: conversation-service
@@ -31,7 +48,6 @@ http:
       middlewares:
         - cors-headers
 
-    # 论文存储服务
     paper-router:
       rule: "PathPrefix(`/api/papers`)"
       service: paper-service
@@ -40,7 +56,6 @@ http:
       middlewares:
         - cors-headers
 
-    # 向量搜索服务
     vector-router:
       rule: "PathPrefix(`/api/vector`)"
       service: vector-service
@@ -49,7 +64,6 @@ http:
       middlewares:
         - cors-headers
 
-    # Milvus 管理路由
     milvus-router:
       rule: "PathPrefix(`/api/milvus`)"
       service: vector-service
@@ -58,7 +72,6 @@ http:
       middlewares:
         - cors-headers
 
-    # 文献检索服务
     literature-router:
       rule: "PathPrefix(`/api/literature`)"
       service: literature-service
@@ -67,7 +80,6 @@ http:
       middlewares:
         - cors-headers
 
-    # 思维导图服务
     mindmap-router:
       rule: "PathPrefix(`/api/mindmap`)"
       service: mindmap-service
@@ -76,7 +88,6 @@ http:
       middlewares:
         - cors-headers
 
-    # 分析服务
     analysis-router:
       rule: "PathPrefix(`/api/analysis`)"
       service: analysis-service
@@ -85,8 +96,6 @@ http:
       middlewares:
         - cors-headers
 
-  # ============ 服务定义 ============
-  # Docker Compose 网络内使用服务名访问
   services:
     agent-service:
       loadBalancer:
@@ -160,9 +169,7 @@ http:
           interval: "10s"
           timeout: "3s"
 
-  # ============ 中间件 ============
   middlewares:
-    # CORS 配置
     cors-headers:
       headers:
         accessControlAllowMethods:
@@ -181,13 +188,11 @@ http:
         accessControlMaxAge: 3600
         addVaryHeader: true
 
-    # 限流配置
     rate-limit:
       rateLimit:
         average: 100
         burst: 50
 
-    # 重试配置
     retry:
       retry:
         attempts: 3

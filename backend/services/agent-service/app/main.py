@@ -7,6 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.agent import router as agent_router
+from .api.dashboard import router as dashboard_router
+from .api.memory import router as memory_router
+from .api.system import router as system_router
 
 load_dotenv()
 
@@ -28,6 +31,9 @@ app.add_middleware(
 )
 
 app.include_router(agent_router)
+app.include_router(dashboard_router)
+app.include_router(memory_router)
+app.include_router(system_router)
 
 
 @app.get("/")

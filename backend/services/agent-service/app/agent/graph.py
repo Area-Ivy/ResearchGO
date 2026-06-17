@@ -2,6 +2,7 @@
 import copy
 import json
 import logging
+import re
 import uuid
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
@@ -34,6 +35,8 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """You are the ResearchGO AI research assistant.
 You can search literature, inspect user papers, run vector retrieval, analyze papers, build mindmaps, and compare papers.
 Use the available tools when they improve factual accuracy. Prefer attached conversation paper_id values for paper-specific operations.
+When a mindmap tool succeeds, do not fabricate or output image URLs, markdown image links, download links, placeholder links, or example visualization links. The UI renders the visual mindmap directly from tool data, so a brief confirmation is enough.
+When the user explicitly asks for a structured analysis, analysis report, paper analysis card, or a sectioned analysis of an attached paper, you must call analyze_paper for that paper instead of answering from general model knowledge or only using ask_about_paper.
 If exactly one paper is attached to the current conversation, treat ambiguous references such as "this paper", "the selected paper", "this article", or "this work" as referring to that attached paper by default.
 When the user asks for an introduction, summary, analysis, explanation, or question answering about the currently attached paper, do not ask the user to repeat the paper name or ID unless multiple attached papers create ambiguity.
 When exactly one paper is attached and the user says phrases like "这篇论文", "这篇文章", "该论文", or similar references, resolve that reference to the attached paper and use paper-specific tools with its paper_id instead of asking a clarifying question.
@@ -73,6 +76,54 @@ ATTACHED_PAPER_REFERENCE_MARKERS = (
     "this work",
 )
 
+STRUCTURED_ANALYSIS_MARKERS = (
+    "结构化分析",
+    "分析报告",
+    "论文分析",
+    "详细分析",
+    "structured analysis",
+    "analysis report",
+    "paper analysis",
+)
+
+MINDMAP_ARTIFACT_PATTERN = re.compile(
+    r"\n?<!--RESEARCHGO_MINDMAP:(?P<payload>.+?)-->",
+    re.DOTALL,
+)
+ANALYSIS_ARTIFACT_PATTERN = re.compile(
+    r"\n?<!--RESEARCHGO_ANALYSIS:(?P<payload>.+?)-->",
+    re.DOTALL,
+)
+
+
+def _strip_placeholder_mindmap_links(text: str) -> str:
+    if not text:
+        return text
+    cleaned = text
+    patterns = (
+        r'!\[[^\]]*\]\(\s*https?:\/\/image\.pollinations\.ai\/prompt\/[^)\s]+(?:\s+"[^"]*")?\s*\)',
+        r'\(\s*https?:\/\/image\.pollinations\.ai\/prompt\/[^)\s]+\s*\)',
+        r'https?:\/\/image\.pollinations\.ai\/prompt\/\S+',
+    )
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
+def _strip_embedded_mindmap_artifacts(text: str) -> str:
+    if not text:
+        return text
+    cleaned = MINDMAP_ARTIFACT_PATTERN.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _strip_embedded_analysis_artifacts(text: str) -> str:
+    if not text:
+        return text
+    cleaned = ANALYSIS_ARTIFACT_PATTERN.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
 
 def _should_bind_single_attached_paper(user_input: str, attached_papers: List[Dict[str, str]]) -> bool:
     if len(attached_papers) != 1:
@@ -85,16 +136,24 @@ def _should_bind_single_attached_paper(user_input: str, attached_papers: List[Di
     return any(marker in user_input or marker in lowered for marker in ATTACHED_PAPER_REFERENCE_MARKERS)
 
 
+def _is_structured_analysis_request(user_input: str) -> bool:
+    lowered = (user_input or "").lower()
+    if not lowered.strip():
+        return False
+    return any(marker in user_input or marker in lowered for marker in STRUCTURED_ANALYSIS_MARKERS)
+
+
 def _augment_user_message_with_attached_paper(
     user_input: str,
     attached_paper: Dict[str, str],
+    require_structured_analysis: bool = False,
 ) -> str:
     paper_id = attached_paper.get("paper_id", "").strip()
     paper_name = attached_paper.get("name", "").strip() or paper_id or "Unknown paper"
     if not paper_id:
         return user_input
 
-    return (
+    suffix = (
         f"{user_input}\n\n"
         "[Attached paper resolution]\n"
         "The user is referring to the currently attached paper.\n"
@@ -104,6 +163,13 @@ def _augment_user_message_with_attached_paper(
         "If the request is about introducing, summarizing, explaining, reviewing, or answering questions about the paper, do not ask for the paper name again.\n"
         "Call ask_about_paper for grounded paper Q&A, or analyze_paper when a structured analysis is needed."
     )
+    if require_structured_analysis:
+        suffix += (
+            "\nThe user is explicitly requesting a structured analysis/report for this attached paper.\n"
+            "You must call analyze_paper with this paper_id before giving the final answer.\n"
+            "Do not answer with a free-form summary alone."
+        )
+    return suffix
 
 
 class ResearchAgent:
@@ -194,6 +260,9 @@ class ResearchAgent:
         summary = ""
         memory_context = ""
         processed_messages = copy.deepcopy(messages)
+        for msg in processed_messages:
+            if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                msg["content"] = _strip_embedded_mindmap_artifacts(msg["content"])
 
         if ENABLE_CONVERSATION_SUMMARY and conversation_id:
             try:
@@ -630,7 +699,9 @@ class ResearchAgent:
         final_state = await self.app.ainvoke(initial_state, config=config)
         await self._post_process_memories(final_state.get("messages", []), user_id=user_id, token=token)
         return {
-            "answer": final_state.get("final_answer", ""),
+            "answer": _strip_placeholder_mindmap_links(
+                _strip_embedded_mindmap_artifacts(final_state.get("final_answer", ""))
+            ),
             "thoughts": final_state.get("thoughts", []),
             "tool_calls": final_state.get("tool_calls", []),
         }
@@ -721,11 +792,26 @@ class ResearchAgent:
                                         "mindmap_data": tool_data.get("mindmap_data"),
                                         "message": tool_data.get("message", "Mindmap generated successfully."),
                                     })
+                                elif tool_data.get("analysis"):
+                                    if tool_message_id:
+                                        emitted_tool_message_ids.add(tool_message_id)
+                                    yield StreamEvent(event="analysis", data={
+                                        "paper_id": tool_data.get("paper_id"),
+                                        "analysis": tool_data.get("analysis"),
+                                        "message": tool_data.get("message", "Analysis generated successfully."),
+                                    })
                             except Exception:
                                 pass
                     if output.get("final_answer"):
                         if not final_answer_chunks:
-                            yield StreamEvent(event="answer", data=output["final_answer"])
+                            yield StreamEvent(
+                                event="answer",
+                                data=_strip_placeholder_mindmap_links(
+                                    _strip_embedded_analysis_artifacts(
+                                        _strip_embedded_mindmap_artifacts(output["final_answer"])
+                                    )
+                                ),
+                            )
                         else:
                             yield StreamEvent(event="answer_end", data=None)
 

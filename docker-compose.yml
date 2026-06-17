@@ -228,6 +228,7 @@ services:
       - ENABLE_CHECKPOINTER=true
       - ENABLE_CONVERSATION_SUMMARY=true
       - ENABLE_SEMANTIC_MEMORY=true
+      - SEMANTIC_MEMORY_DIR=/app/data/semantic-memory
       - SLIDING_WINDOW_SIZE=10
       # Consul 服务注册
       - CONSUL_HOST=consul
@@ -248,6 +249,8 @@ services:
         condition: service_started
       research-mcp-server:
         condition: service_started
+    volumes:
+      - ./backend/data/semantic-memory:/app/data/semantic-memory
 
   research-mcp-server:
     build:
@@ -408,7 +411,11 @@ services:
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-qwen-max}
+      - OPENAI_TRANSLATION_MODEL=${OPENAI_TRANSLATION_MODEL:-}
+      - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
       - RERANKER_MODEL=/models/reranker
+      - VECTOR_SEARCH_DATA_DIR=/app/data
       - AUTH_SERVICE_URL=http://auth-service:8001
       # Consul 服务注册
       - CONSUL_HOST=consul
@@ -416,6 +423,7 @@ services:
       - SERVICE_PORT=8004
     volumes:
       - ./backend/reranker:/models/reranker:ro
+      - ./backend/data/vector-search:/app/data
     networks:
       - researchgo-network
     depends_on:
@@ -438,6 +446,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-qwen-max}
       # Consul 服务注册
       - CONSUL_HOST=consul
       - SERVICE_NAME=literature-search-service
@@ -460,6 +469,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-qwen-max}
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
@@ -489,6 +499,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-qwen-max}
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
@@ -505,6 +516,23 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_USE_GATEWAY: "true"
+        VITE_GATEWAY_URL: ""
+    container_name: researchgo-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - researchgo-network
+    depends_on:
+      traefik:
+        condition: service_started
 
 networks:
   researchgo-network:

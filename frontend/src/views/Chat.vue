@@ -70,36 +70,48 @@
           </svg>
         </button>
         <div class="header-section">
-          <h1 class="page-title">
+          <p class="eyebrow">Chat</p>
+          <h1>
             {{ currentConversation?.title || 'AI Research Assistant' }}
           </h1>
-          <p class="page-subtitle">Ask me anything about your research</p>
+          <p class="subtitle">Ask me anything about your research.</p>
         </div>
-        <div class="header-actions">
-          <input
-            ref="paperUploadInput"
-            type="file"
-            accept=".pdf"
-            class="paper-upload-input"
-            @change="handlePaperUpload"
-          >
-          <button
-            class="header-action-btn"
-            :disabled="isUploadingPaper"
-            @click="triggerPaperUpload"
-          >
-            {{ isUploadingPaper ? 'Uploading...' : 'Upload Paper' }}
+        <div class="header-actions compact-attachments">
+          <button class="header-action-btn secondary memory-header-btn" type="button" @click="openMemoryEditor">
+            <span>Memory</span>
           </button>
-          <button
-            class="header-action-btn secondary"
-            :disabled="paperLibraryLoading"
-            @click="openPaperLibrary"
-          >
-            {{ paperLibraryLoading ? 'Loading...' : 'Select Paper' }}
-          </button>
-          <!-- 棰勭暀鎿嶄綔鎸夐挳浣嶇疆 -->
+          <div v-if="attachedPapers.length > 0" class="header-attachments-control">
+            <button class="header-attachment-trigger" @click="showAttachedPapersMenu = !showAttachedPapersMenu">
+              <span class="header-attachment-trigger-label">Attached</span>
+              <span class="header-attachment-count">{{ attachedPapers.length }}</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div v-if="showAttachedPapersMenu" class="header-attachments-menu">
+              <div class="header-attachments-menu-title">Attached papers</div>
+              <div class="header-attachments-menu-list">
+                <div
+                  v-for="paper in attachedPapers"
+                  :key="paper.paper_id"
+                  class="header-attachment-item"
+                >
+                  <span class="header-attachment-name">{{ paper.name }}</span>
+                  <button class="header-attachment-remove" @click="removeAttachedPaper(paper.paper_id)">Remove</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
+
+    <input
+      ref="paperUploadInput"
+      type="file"
+      accept=".pdf"
+      class="paper-upload-input"
+      @change="handlePaperUpload"
+    >
 
     <div
       v-if="paperUploadNotice"
@@ -107,19 +119,6 @@
       :class="paperUploadNoticeType"
     >
       {{ paperUploadNotice }}
-    </div>
-
-    <div v-if="attachedPapers.length > 0" class="attached-papers-bar">
-      <div class="attached-papers-label">Attached papers</div>
-      <div class="attached-papers-list">
-        <div v-for="paper in attachedPapers" :key="paper.paper_id" class="attached-paper-chip">
-          <div class="attached-paper-meta">
-            <span class="attached-paper-name">{{ paper.name }}</span>
-            <span class="attached-paper-id">{{ paper.paper_id }}</span>
-          </div>
-          <button class="chip-remove-btn" @click="removeAttachedPaper(paper.paper_id)">Remove</button>
-        </div>
-      </div>
     </div>
 
     <div class="chat-messages" ref="messagesContainer">
@@ -168,12 +167,39 @@
             <span class="message-role">{{ message.role === 'user' ? 'You' : 'AI Assistant' }}</span>
             <span class="message-time">{{ message.time }}</span>
           </div>
-          <div class="message-text" v-html="message.content"></div>
+          <div v-if="message.analyses?.length" class="message-analyses">
+            <div v-for="analysis in message.analyses" :key="analysis.id" class="analysis-card">
+              <div class="analysis-card-header">
+                <div class="analysis-card-meta">
+                  <div class="analysis-card-kicker">结构化分析</div>
+                  <div class="analysis-card-title">{{ analysis.data.title || analysis.title || '论文分析报告' }}</div>
+                </div>
+              </div>
+              <div class="analysis-card-body">
+                <div
+                  v-for="section in buildAnalysisSections(analysis.data)"
+                  :key="section.key"
+                  class="analysis-section"
+                  :class="{ highlight: section.highlight }"
+                >
+                  <div class="section-header">
+                    <h4>{{ section.label }}</h4>
+                  </div>
+                  <p class="section-content" :class="{ 'highlight-title': section.key === 'title' }">
+                    {{ section.value }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="message.content" class="message-text" v-html="message.content"></div>
           <div v-if="message.mindmaps?.length" class="message-mindmaps">
             <div v-for="mindmap in message.mindmaps" :key="mindmap.id" class="mindmap-card">
               <div class="mindmap-card-header">
-                <div class="mindmap-card-title">思维导图</div>
-                <div class="mindmap-card-subtitle">{{ mindmap.title }}</div>
+                <div class="mindmap-card-meta">
+                  <div class="mindmap-card-title">思维导图</div>
+                  <div class="mindmap-card-subtitle">{{ mindmap.title }}</div>
+                </div>
               </div>
               <div class="mindmap-card-body">
                 <div :id="mindmap.id" class="chat-jsmind-container"></div>
@@ -194,6 +220,9 @@
         <div class="message-content">
           <div class="message-header">
             <span class="message-role">AI Assistant</span>
+          </div>
+          <div v-if="activeToolCall" class="tool-call-status">
+            Calling tool: {{ activeToolCall }}
           </div>
           <div class="typing-indicator">
             <span></span>
@@ -290,6 +319,57 @@
       </div>
     </div>
   </div>
+
+  <div
+    v-if="memoryEditorOpen"
+    class="memory-editor-overlay"
+    @click.self="closeMemoryEditor"
+  >
+    <div class="memory-editor-modal">
+      <div class="memory-editor-header">
+        <div>
+          <h3>Memory</h3>
+          <p>{{ memoryFileName }}<span v-if="memoryUpdatedAt"> · Updated {{ formatMemoryDate(memoryUpdatedAt) }}</span></p>
+        </div>
+        <button class="paper-library-close" type="button" @click="closeMemoryEditor">Close</button>
+      </div>
+
+      <div v-if="memoryError" class="memory-editor-state error">{{ memoryError }}</div>
+      <div v-else-if="memoryNotice" class="memory-editor-state success">{{ memoryNotice }}</div>
+
+      <div class="memory-editor-body">
+        <div v-if="memoryLoading" class="memory-editor-loading">
+          <span class="spinner"></span>
+          <span>Loading memory...</span>
+        </div>
+        <textarea
+          v-else
+          v-model="memoryContent"
+          class="memory-editor-textarea"
+          spellcheck="false"
+          aria-label="Memory markdown"
+        ></textarea>
+      </div>
+
+      <div class="memory-editor-footer">
+        <div class="memory-editor-stats">
+          <span>{{ memoryLineCount }} lines</span>
+          <span>{{ memoryByteCount }} bytes</span>
+        </div>
+        <div class="memory-editor-actions">
+          <button class="header-action-btn secondary" type="button" :disabled="memoryLoading || memorySaving" @click="loadMemoryDocumentForEditor">
+            Revert
+          </button>
+          <button class="header-action-btn danger" type="button" :disabled="memoryLoading || memorySaving" @click="clearMemoryEditor">
+            Clear
+          </button>
+          <button class="header-action-btn" type="button" :disabled="memoryLoading || memorySaving" @click="saveMemoryEditor">
+            {{ memorySaving ? 'Saving' : 'Save' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script>
@@ -299,7 +379,7 @@ export default {
 </script>
 
 <script setup>
-import { ref, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import katex from 'katex'
@@ -318,6 +398,7 @@ import {
   updateConversation
 } from '../api/conversations'
 import { listPapers, uploadPaper } from '../api/papers'
+import { clearMemoryDocument, getMemoryDocument, saveMemoryDocument } from '../api/memory'
 
 const route = useRoute()
 
@@ -340,6 +421,7 @@ marked.setOptions({
 const messages = ref([])
 const inputMessage = ref('')
 const isLoading = ref(false)
+const activeToolCall = ref('')
 const messagesContainer = ref(null)
 const inputTextarea = ref(null)
 const paperUploadInput = ref(null)
@@ -356,11 +438,128 @@ const paperLibraryError = ref('')
 const paperLibraryNotice = ref('')
 const isUploadingPaper = ref(false)
 const showInputActions = ref(false)
+const showAttachedPapersMenu = ref(false)
 const paperUploadNotice = ref('')
 const paperUploadNoticeType = ref('info')
+const memoryEditorOpen = ref(false)
+const memoryContent = ref('')
+const memoryFileName = ref('memory.md')
+const memoryUpdatedAt = ref(null)
+const memoryLoading = ref(false)
+const memorySaving = ref(false)
+const memoryError = ref('')
+const memoryNotice = ref('')
 let paperLibraryPollTimer = null
 const ATTACHED_PAPERS_STORAGE_KEY = 'researchgo_chat_attached_papers'
 const chatMindmapInstances = new Map()
+const DEFAULT_CONVERSATION_TITLE = '新对话'
+const ANALYSIS_SECTION_CONFIG = [
+  { key: 'title', label: '标题' },
+  { key: 'abstract', label: '摘要' },
+  { key: 'research_background', label: '研究背景' },
+  { key: 'research_problem', label: '研究问题' },
+  { key: 'methodology', label: '方法论' },
+  { key: 'key_findings', label: '关键发现', highlight: true },
+  { key: 'innovations', label: '创新点', highlight: true },
+  { key: 'limitations', label: '局限性' },
+  { key: 'future_work', label: '未来工作' },
+  { key: 'conclusion', label: '结论' }
+]
+
+const memoryLineCount = computed(() => (memoryContent.value ? memoryContent.value.split('\n').length : 0))
+const memoryByteCount = computed(() => new Blob([memoryContent.value]).size)
+
+const setMemoryDocument = (document) => {
+  memoryContent.value = document.content || ''
+  memoryFileName.value = document.file_name || 'memory.md'
+  memoryUpdatedAt.value = document.updated_at || null
+}
+
+const formatMemoryDate = (value) => {
+  if (!value) return ''
+  return new Date(value).toLocaleString()
+}
+
+const loadMemoryDocumentForEditor = async () => {
+  memoryLoading.value = true
+  memoryError.value = ''
+  memoryNotice.value = ''
+  try {
+    setMemoryDocument(await getMemoryDocument())
+  } catch (err) {
+    memoryError.value = err.response?.data?.detail || 'Failed to load memory.'
+  } finally {
+    memoryLoading.value = false
+  }
+}
+
+const openMemoryEditor = async () => {
+  memoryEditorOpen.value = true
+  await loadMemoryDocumentForEditor()
+}
+
+const closeMemoryEditor = () => {
+  memoryEditorOpen.value = false
+}
+
+const saveMemoryEditor = async () => {
+  memorySaving.value = true
+  memoryError.value = ''
+  memoryNotice.value = ''
+  try {
+    setMemoryDocument(await saveMemoryDocument(memoryContent.value))
+    memoryNotice.value = 'Saved.'
+  } catch (err) {
+    memoryError.value = err.response?.data?.detail || 'Failed to save memory.'
+  } finally {
+    memorySaving.value = false
+  }
+}
+
+const clearMemoryEditor = async () => {
+  if (!window.confirm('Clear memory?')) return
+  memorySaving.value = true
+  memoryError.value = ''
+  memoryNotice.value = ''
+  try {
+    setMemoryDocument(await clearMemoryDocument())
+    memoryNotice.value = 'Cleared.'
+  } catch (err) {
+    memoryError.value = err.response?.data?.detail || 'Failed to clear memory.'
+  } finally {
+    memorySaving.value = false
+  }
+}
+
+const buildConversationTitle = (text) => {
+  const normalizedText = (text || '').replace(/\s+/g, ' ').trim()
+  if (!normalizedText) return DEFAULT_CONVERSATION_TITLE
+  return normalizedText.substring(0, 30) + (normalizedText.length > 30 ? '...' : '')
+}
+
+const getFirstUserMessageContent = (conversation) => {
+  const firstUserMessage = conversation?.messages?.find(message => message.role === 'user')
+  return firstUserMessage?.content || ''
+}
+
+const hydrateConversationTitle = async (conversation) => {
+  if (!conversation?.id || conversation.title !== DEFAULT_CONVERSATION_TITLE) {
+    return conversation
+  }
+
+  try {
+    const detail = await getConversation(conversation.id)
+    const title = buildConversationTitle(getFirstUserMessageContent(detail))
+
+    if (title !== DEFAULT_CONVERSATION_TITLE) {
+      conversation.title = title
+    }
+  } catch (err) {
+    console.error('加载对话标题失败:', err)
+  }
+
+  return conversation
+}
 
 // Render LaTeX with KaTeX
 const renderLatex = (text) => {
@@ -451,113 +650,48 @@ const renderPapersCards = (papersData) => {
   const { query, total, papers } = papersData
   
   if (!papers || papers.length === 0) {
-    return `<div class="papers-empty">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-        <polyline points="14 2 14 8 20 8"></polyline>
-      </svg>
-      <p>未找到相关论文</p>
-    </div>`
+    return `<p>未找到与 “${escapeHtml(query || '')}” 相关的论文。</p>`
   }
   
-  // 鏍煎紡鍖栧紩鐢ㄦ暟
   const formatCitations = (num) => {
     if (num >= 10000) return (num / 1000).toFixed(1) + 'K'
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
     return num
   }
-  
-  let html = `<div class="papers-container">`
-  html += `<div class="papers-header">
-    <div class="papers-header-left">
-      <div class="papers-icon-wrapper">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
-        </svg>
-      </div>
-      <div class="papers-header-text">
-        <span class="papers-count">${total || papers.length}</span>
-        <span class="papers-label">篇相关论文</span>
-      </div>
-    </div>
-    <div class="papers-query-badge">
-      <span class="query-indicator"></span>
-      <span>${query}</span>
-    </div>
-  </div>`
-  
-  html += `<div class="papers-grid">`
-  
-  for (let i = 0; i < Math.min(papers.length, 6); i++) {
-    const paper = papers[i]
-    const authors = paper.authors ? paper.authors.slice(0, 2).join(', ') + (paper.authors.length > 2 ? ' et al.' : '') : 'Unknown'
-    const year = paper.year || 'N/A'
-    const citations = paper.cited_by_count || 0
-    const isOpenAccess = paper.open_access
-    const abstract = paper.abstract ? paper.abstract.substring(0, 120) + '...' : ''
-    const doi = paper.doi || ''
-    
-    let hotLevel = ''
-    if (citations > 1000) hotLevel = 'hot-fire'
-    else if (citations > 100) hotLevel = 'hot-warm'
-    
-    html += `
-      <div class="paper-card ${hotLevel}" style="animation-delay: ${i * 0.05}s">
-        <div class="paper-card-glow"></div>
-        <div class="paper-card-inner">
-          <div class="paper-card-header">
-            <div class="paper-badges">
-              ${isOpenAccess ? '<span class="paper-badge paper-badge-oa"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> Open</span>' : ''}
-              ${hotLevel === 'hot-fire' ? '<span class="paper-badge paper-badge-hot">馃敟 High Impact</span>' : ''}
-            </div>
-            <span class="paper-year-badge">${year}</span>
-          </div>
-          <h4 class="paper-title">${paper.title || 'Untitled'}</h4>
-          <p class="paper-authors">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-              <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-            ${authors}
-          </p>
-          ${abstract ? `<p class="paper-abstract">${abstract}</p>` : ''}
-          <div class="paper-footer">
-            <div class="paper-stats">
-              <div class="stat-item">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M3 3v18h18"></path>
-                  <path d="m19 9-5 5-4-4-3 3"></path>
-                </svg>
-                <span class="stat-value">${formatCitations(citations)}</span>
-                <span class="stat-label">寮曠敤</span>
-              </div>
-            </div>
-            ${doi ? `<a href="${doi}" target="_blank" class="paper-link">
-              <span>鏌ョ湅璇︽儏</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                <polyline points="15 3 21 3 21 9"></polyline>
-                <line x1="10" y1="14" x2="21" y2="3"></line>
-              </svg>
-            </a>` : ''}
-          </div>
-        </div>
-      </div>
+
+  const itemsHtml = papers.slice(0, 6).map((paper, index) => {
+    const title = escapeHtml(paper.title || 'Untitled')
+    const authors = escapeHtml(
+      paper.authors ? paper.authors.slice(0, 3).join(', ') + (paper.authors.length > 3 ? ' et al.' : '') : 'Unknown'
+    )
+    const year = escapeHtml(paper.year || 'N/A')
+    const citations = formatCitations(paper.cited_by_count || 0)
+    const abstract = paper.abstract ? `<div>${escapeHtml(paper.abstract.substring(0, 180))}${paper.abstract.length > 180 ? '...' : ''}</div>` : ''
+    const detailLink = paper.doi
+      ? ` <a href="${escapeHtml(paper.doi)}" target="_blank" rel="noopener noreferrer">查看详情</a>`
+      : ''
+
+    return `
+      <li>
+        <strong>${index + 1}. ${title}</strong><br>
+        <span>${authors} · ${year} · 引用 ${citations}</span>
+        ${abstract}
+        ${detailLink}
+      </li>
     `
-  }
-  
-  html += `</div>`
-  
-  // 濡傛灉璁烘枃鏁伴噺瓒呰繃6绡囷紝鏄剧ず鏌ョ湅鏇村鎻愮ず
-  if (papers.length > 6) {
-    html += `<div class="papers-more">
-      <span>杩樻湁 ${papers.length - 6} 绡囪鏂囨湭鏄剧ず</span>
-    </div>`
-  }
-  
-  html += `</div>`
-  return html
+  }).join('')
+
+  const moreHtml = papers.length > 6
+    ? `<p>还有 ${papers.length - 6} 篇结果未显示。</p>`
+    : ''
+
+  return `
+    <div>
+      <p>找到 <strong>${escapeHtml(total || papers.length)}</strong> 篇与 “${escapeHtml(query || '')}” 相关的论文：</p>
+      <ol>${itemsHtml}</ol>
+      ${moreHtml}
+    </div>
+  `
 }
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -566,12 +700,147 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;')
 
+const stripMindmapPlaceholderLinks = (text) => {
+  const normalized = String(text ?? '')
+  return normalized
+    .replace(/!\[[^\]]*\]\(\s*https?:\/\/image\.pollinations\.ai\/prompt\/[^)\s]+(?:\s+"[^"]*")?\s*\)/gi, '')
+    .replace(/\(\s*https?:\/\/image\.pollinations\.ai\/prompt\/[^)\s]+\s*\)/gi, '')
+    .replace(/https?:\/\/image\.pollinations\.ai\/prompt\/\S+/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+const MINDMAP_ARTIFACT_REGEX = /<!--RESEARCHGO_MINDMAP:(.+?)-->/gs
+const ANALYSIS_ARTIFACT_REGEX = /<!--RESEARCHGO_ANALYSIS:(.+?)-->/gs
+
+const decodeBase64Utf8 = (value) => {
+  try {
+    const binary = atob(value)
+    const bytes = Uint8Array.from(binary, char => char.charCodeAt(0))
+    return new TextDecoder().decode(bytes)
+  } catch (err) {
+    console.error('Failed to decode base64 artifact:', err)
+    return ''
+  }
+}
+
+const parseStoredAssistantArtifacts = (text) => {
+  const rawText = String(text ?? '')
+  const mindmaps = []
+  const analyses = []
+
+  rawText.replace(MINDMAP_ARTIFACT_REGEX, (_, payload) => {
+    try {
+      const decoded = decodeBase64Utf8(payload.trim())
+      const parsed = JSON.parse(decoded)
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          const mindmapData = item?.mindmap_data
+          if (!mindmapData) continue
+          mindmaps.push({
+            id: `chat-mindmap-history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            paperId: item?.paper_id || 'unknown-paper',
+            title: mindmapData?.data?.topic || '论文思维导图',
+            data: mindmapData
+          })
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse stored mindmap artifact:', err)
+    }
+    return ''
+  })
+
+  rawText.replace(ANALYSIS_ARTIFACT_REGEX, (_, payload) => {
+    try {
+      const decoded = decodeBase64Utf8(payload.trim())
+      const parsed = JSON.parse(decoded)
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          const analysis = item?.analysis
+          if (!analysis) continue
+          analyses.push({
+            id: `chat-analysis-history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            paperId: item?.paper_id || 'unknown-paper',
+            title: analysis?.title || '论文分析报告',
+            data: analysis
+          })
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse stored analysis artifact:', err)
+    }
+    return ''
+  })
+
+  const cleanedText = rawText
+    .replace(MINDMAP_ARTIFACT_REGEX, '')
+    .replace(ANALYSIS_ARTIFACT_REGEX, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return { cleanedText, mindmaps, analyses }
+}
+
+const renderAssistantTextHtml = (text) => {
+  const cleaned = stripMindmapPlaceholderLinks(text)
+  return cleaned ? marked(renderLatex(cleaned)) : ''
+}
+
+const normalizeConversationMessage = (msg) => {
+  if (msg.role === 'user') {
+    return {
+      role: 'user',
+      content: msg.content,
+      time: formatMessageTime(msg.created_at)
+    }
+  }
+
+  const { cleanedText, mindmaps, analyses } = parseStoredAssistantArtifacts(msg.content)
+  const parsedAnalysis = analyses.length ? null : extractAnalysisFromText(cleanedText)
+  const normalizedAnalyses = analyses.length
+    ? analyses
+    : (parsedAnalysis ? [{
+        id: `chat-analysis-text-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        paperId: 'text-derived',
+        title: parsedAnalysis.title || '论文分析报告',
+        data: parsedAnalysis
+      }] : [])
+  const textHtml = (mindmaps.length || normalizedAnalyses.length) ? '' : renderAssistantTextHtml(cleanedText)
+  const artifactsHtml = ''
+
+  return {
+    role: 'assistant',
+    rawContent: cleanedText,
+    textHtml,
+    artifactsHtml,
+    mindmaps,
+    analyses: normalizedAnalyses,
+    content: `${textHtml}${artifactsHtml}`,
+    time: formatMessageTime(msg.created_at)
+  }
+}
+
 const buildAssistantMessageContent = (message) => {
+  if (message.mindmaps?.length || message.analyses?.length) {
+    return ''
+  }
   return `${message.textHtml || ''}${message.artifactsHtml || ''}`
 }
 
 const syncAssistantMessageContent = (index) => {
   if (index === -1 || !messages.value[index]) return
+  const message = messages.value[index]
+  if (!message.analyses?.length) {
+    const parsedAnalysis = extractAnalysisFromText(message.rawContent || '')
+    if (parsedAnalysis) {
+      message.analyses = [{
+        id: `chat-analysis-live-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        paperId: 'text-derived',
+        title: parsedAnalysis.title || '论文分析报告',
+        data: parsedAnalysis
+      }]
+    }
+  }
   messages.value[index].content = buildAssistantMessageContent(messages.value[index])
 }
 
@@ -590,6 +859,7 @@ const ensureAssistantMessage = () => {
     textHtml: '',
     artifactsHtml: '',
     mindmaps: [],
+    analyses: [],
     time: getCurrentTime()
   })
   return assistantMessageIndex
@@ -610,6 +880,7 @@ const appendAssistantMindmap = async (index, mindmapPayload) => {
   const paperId = mindmapPayload?.paper_id || 'unknown-paper'
   const existing = (messages.value[index].mindmaps || []).find(item => item.paperId === paperId)
   if (existing) {
+    existing.data = mindmapData
     await renderChatMindmap(existing.id, mindmapData)
     return
   }
@@ -623,6 +894,90 @@ const appendAssistantMindmap = async (index, mindmapPayload) => {
   messages.value[index].mindmaps = nextMindmaps
   await nextTick()
   await renderChatMindmap(mindmapId, mindmapData)
+}
+
+const appendAssistantAnalysis = (index, analysisPayload) => {
+  if (index === -1 || !messages.value[index]) return
+
+  const analysisData = analysisPayload?.analysis
+  if (!analysisData) return
+
+  const paperId = analysisPayload?.paper_id || 'unknown-paper'
+  const existing = (messages.value[index].analyses || []).find(item => item.paperId === paperId)
+  if (existing) {
+    existing.data = analysisData
+    existing.title = analysisData?.title || existing.title
+    syncAssistantMessageContent(index)
+    return
+  }
+
+  const nextAnalyses = [
+    ...(messages.value[index].analyses || []),
+    {
+      id: `chat-analysis-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      paperId,
+      title: analysisData?.title || '论文分析报告',
+      data: analysisData
+    }
+  ]
+  messages.value[index].analyses = nextAnalyses
+  syncAssistantMessageContent(index)
+}
+
+const buildAnalysisSections = (analysis) => ANALYSIS_SECTION_CONFIG
+  .map(section => ({
+    ...section,
+    value: analysis?.[section.key]
+  }))
+  .filter(section => {
+    const value = section.value
+    return typeof value === 'string' ? value.trim() : Boolean(value)
+  })
+
+const ANALYSIS_TEXT_PATTERNS = [
+  { key: 'title', patterns: ['标题', '题目'] },
+  { key: 'abstract', patterns: ['摘要'] },
+  { key: 'research_background', patterns: ['研究背景', '背景'] },
+  { key: 'research_problem', patterns: ['研究问题', '问题'] },
+  { key: 'methodology', patterns: ['方法论', '研究方法', '方法'] },
+  { key: 'key_findings', patterns: ['关键发现', '主要发现', '研究发现'] },
+  { key: 'innovations', patterns: ['创新点', '创新'] },
+  { key: 'limitations', patterns: ['局限性', '局限'] },
+  { key: 'future_work', patterns: ['未来工作', '未来研究', '展望'] },
+  { key: 'conclusion', patterns: ['结论'] }
+]
+
+const cleanAnalysisValue = (value) => String(value || '')
+  .replace(/^[\s•\-*]+/, '')
+  .replace(/\*\*/g, '')
+  .replace(/<[^>]+>/g, '')
+  .trim()
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const extractAnalysisFromText = (text) => {
+  const source = String(text || '').replace(/\r/g, '')
+  if (!source.trim()) return null
+
+  const extracted = {}
+
+  for (let index = 0; index < ANALYSIS_TEXT_PATTERNS.length; index += 1) {
+    const current = ANALYSIS_TEXT_PATTERNS[index]
+    const next = ANALYSIS_TEXT_PATTERNS[index + 1]
+    const currentLabel = current.patterns.map(escapeRegex).join('|')
+    const nextLabel = next ? next.patterns.map(escapeRegex).join('|') : null
+    const pattern = nextLabel
+      ? new RegExp(`(?:^|\\n)[\\s>*-]*?(?:${currentLabel})\\s*[：:：]\\s*([\\s\\S]*?)(?=(?:\\n[\\s>*-]*?(?:${nextLabel})\\s*[：:：])|$)`, 'i')
+      : new RegExp(`(?:^|\\n)[\\s>*-]*?(?:${currentLabel})\\s*[：:：]\\s*([\\s\\S]*?)$`, 'i')
+    const match = source.match(pattern)
+    if (match?.[1]) {
+      extracted[current.key] = cleanAnalysisValue(match[1])
+    }
+  }
+
+  const filledKeys = Object.values(extracted).filter(Boolean)
+  if (filledKeys.length < 4) return null
+  return extracted
 }
 
 const addChatMindmapDragAndZoom = (container) => {
@@ -740,7 +1095,7 @@ const ensureConversationContext = async () => {
     return currentConversation.value
   }
 
-  const conv = await createConversation('新对话')
+  const conv = await createConversation(DEFAULT_CONVERSATION_TITLE)
   currentConversation.value = conv
   loadAttachedPapersForConversation(conv.id)
   await loadConversations()
@@ -766,6 +1121,7 @@ const attachPaperToConversation = async (paper) => {
     attachedPapers.value = [...attachedPapers.value, normalizedPaper]
     saveAttachedPapersForConversation(conversation.id, attachedPapers.value)
   }
+  showAttachedPapersMenu.value = false
 }
 
 const triggerPaperUpload = () => {
@@ -915,6 +1271,9 @@ const handlePaperUpload = async (event) => {
 const removeAttachedPaper = (paperId) => {
   attachedPapers.value = attachedPapers.value.filter(paper => paper.paper_id !== paperId)
   persistAttachedPapers()
+  if (attachedPapers.value.length === 0) {
+    showAttachedPapersMenu.value = false
+  }
 }
 
 // ============================================
@@ -925,7 +1284,10 @@ const removeAttachedPaper = (paperId) => {
 const loadConversations = async () => {
   try {
     const data = await getConversations(0, 50)
-    conversations.value = data.conversations
+    const conversationList = data.conversations || []
+    conversations.value = await Promise.all(
+      conversationList.map(conversation => hydrateConversationTitle({ ...conversation }))
+    )
   } catch (err) {
     console.error('鍔犺浇瀵硅瘽鍒楄〃澶辫触:', err)
   }
@@ -945,7 +1307,7 @@ const createNewChat = async () => {
       isLoading.value = false
     }
     
-    const conv = await createConversation('新对话')
+    const conv = await createConversation(DEFAULT_CONVERSATION_TITLE)
     currentConversation.value = conv
     messages.value = []
     attachedPapers.value = []
@@ -980,17 +1342,25 @@ const switchConversation = async (conversationId) => {
     }
     
     const conv = await getConversation(conversationId)
+    if (conv.title === DEFAULT_CONVERSATION_TITLE) {
+      const derivedTitle = buildConversationTitle(getFirstUserMessageContent(conv))
+      if (derivedTitle !== DEFAULT_CONVERSATION_TITLE) {
+        conv.title = derivedTitle
+      }
+    }
     currentConversation.value = conv
     loadAttachedPapersForConversation(conv.id)
     
-    // 杞崲娑堟伅鏍煎紡
-    messages.value = conv.messages.map(msg => ({
-      role: msg.role,
-      content: msg.role === 'user' ? msg.content : marked(renderLatex(msg.content)),
-      time: formatMessageTime(msg.created_at)
-    }))
+    // 杞崲娑堟伅鏍煎紡锛屽苟鎭㈠持久化的思维导图
+    messages.value = conv.messages.map(normalizeConversationMessage)
     
     await nextTick()
+    for (const message of messages.value) {
+      if (!message.mindmaps?.length) continue
+      for (const mindmap of message.mindmaps) {
+        await renderChatMindmap(mindmap.id, mindmap.data)
+      }
+    }
     scrollToBottom()
     
     // 绉诲姩绔叧闂晶杈规爮
@@ -1035,10 +1405,10 @@ const saveMessage = async (role, content) => {
 
 // 鏇存柊瀵硅瘽鏍囬锛堜娇鐢ㄧ涓€鏉℃秷鎭級
 const updateConversationTitle = async (firstMessage) => {
-  if (!currentConversation.value || currentConversation.value.title !== '新对话') return
+  if (!currentConversation.value || currentConversation.value.title !== DEFAULT_CONVERSATION_TITLE) return
   
   try {
-    const title = firstMessage.substring(0, 30) + (firstMessage.length > 30 ? '...' : '')
+    const title = buildConversationTitle(firstMessage)
     await updateConversation(currentConversation.value.id, title)
     currentConversation.value.title = title
     await loadConversations()
@@ -1085,7 +1455,7 @@ const sendMessage = async () => {
   // 濡傛灉娌℃湁褰撳墠瀵硅瘽锛屽垱寤轰竴涓柊瀵硅瘽
   if (!currentConversation.value) {
     try {
-      currentConversation.value = await createConversation('新对话')
+      currentConversation.value = await createConversation(DEFAULT_CONVERSATION_TITLE)
       await loadConversations()
     } catch (err) {
       console.error('鍒涘缓瀵硅瘽澶辫触:', err)
@@ -1101,6 +1471,7 @@ const sendMessage = async () => {
 
   messages.value.push(userMessage)
   inputMessage.value = ''
+  await updateConversationTitle(userInput)
 
   // 娉ㄦ剰锛氱敤鎴锋秷鎭凡鍦?Agent Service 涓嚜鍔ㄤ繚瀛橈紝鏃犻渶鍓嶇鍐嶆淇濆瓨
   // 鏍囬涔熷湪 Agent Service 涓嚜鍔ㄧ敓鎴?
@@ -1115,6 +1486,7 @@ const sendMessage = async () => {
 
   // Call real API
   isLoading.value = true
+  activeToolCall.value = ''
   error.value = null
   
   try {
@@ -1189,44 +1561,40 @@ const sendMessage = async () => {
               }
             } else if (currentEvent === 'thinking') {
               console.log('Agent thinking:', data)
+            } else if (currentEvent === 'tool_call') {
+              const toolData = JSON.parse(data)
+              console.log('Tool call:', toolData)
+              activeToolCall.value = toolData.name || ''
+            } else if (currentEvent === 'papers') {
+              const papersData = JSON.parse(data)
+              console.log('Papers result:', papersData)
+            } else if (currentEvent === 'mindmap') {
+              const mindmapData = JSON.parse(data)
+              console.log('Mindmap result:', mindmapData)
               if (assistantMessageIndex === -1) {
                 isLoading.value = false
                 assistantMessageIndex = ensureAssistantMessage()
               }
+              await appendAssistantMindmap(assistantMessageIndex, mindmapData)
               appendAssistantArtifact(
                 assistantMessageIndex,
-                `<div class="agent-thinking">${escapeHtml(JSON.parse(data))}</div>`
+                '<div class="mindmap-artifact-note">已生成可视化思维导图。</div>'
               )
               await nextTick()
               scrollToBottom()
-            } else if (currentEvent === 'tool_call') {
-              const toolData = JSON.parse(data)
-              console.log('Tool call:', toolData)
-              if (assistantMessageIndex !== -1) {
-                appendAssistantArtifact(
-                  assistantMessageIndex,
-                  `<div class="agent-tool-call">Calling tool: ${escapeHtml(toolData.name)}</div>`
-                )
-                await nextTick()
-                scrollToBottom()
+            } else if (currentEvent === 'analysis') {
+              const analysisData = JSON.parse(data)
+              console.log('Analysis result:', analysisData)
+              if (assistantMessageIndex === -1) {
+                isLoading.value = false
+                assistantMessageIndex = ensureAssistantMessage()
               }
-            } else if (currentEvent === 'papers') {
-              const papersData = JSON.parse(data)
-              console.log('Papers result:', papersData)
-              if (assistantMessageIndex !== -1) {
-                appendAssistantArtifact(assistantMessageIndex, renderPapersCards(papersData))
-                await nextTick()
-                scrollToBottom()
-              }
-            } else if (currentEvent === 'mindmap') {
-              const mindmapData = JSON.parse(data)
-              console.log('Mindmap result:', mindmapData)
-              if (assistantMessageIndex !== -1) {
-                await appendAssistantMindmap(assistantMessageIndex, mindmapData)
-                scrollToBottom()
-              }
+              appendAssistantAnalysis(assistantMessageIndex, analysisData)
+              await nextTick()
+              scrollToBottom()
             } else if (currentEvent === 'token') {
               const tokenContent = JSON.parse(data)
+              activeToolCall.value = ''
               if (assistantMessageIndex === -1) {
                 isLoading.value = false
                 assistantMessageIndex = ensureAssistantMessage()
@@ -1234,7 +1602,7 @@ const sendMessage = async () => {
               messages.value[assistantMessageIndex].rawContent =
                 (messages.value[assistantMessageIndex].rawContent || '') + tokenContent
               fullResponse = messages.value[assistantMessageIndex].rawContent
-              messages.value[assistantMessageIndex].textHtml = marked(renderLatex(fullResponse))
+              messages.value[assistantMessageIndex].textHtml = renderAssistantTextHtml(fullResponse)
               syncAssistantMessageContent(assistantMessageIndex)
               await nextTick()
               scrollToBottom()
@@ -1242,31 +1610,35 @@ const sendMessage = async () => {
               if (currentEvent === 'answer') {
                 fullResponse = JSON.parse(data)
               }
+              activeToolCall.value = ''
               if (assistantMessageIndex === -1) {
                 isLoading.value = false
                 assistantMessageIndex = ensureAssistantMessage()
               }
               if (fullResponse) {
-                messages.value[assistantMessageIndex].textHtml = marked(renderLatex(fullResponse))
+                messages.value[assistantMessageIndex].textHtml = renderAssistantTextHtml(fullResponse)
                 syncAssistantMessageContent(assistantMessageIndex)
               }
               await nextTick()
               scrollToBottom()
             } else if (currentEvent === 'error') {
+              activeToolCall.value = ''
               const errorData = JSON.parse(data)
               throw new Error(errorData.error || 'Agent error')
             } else if (currentEvent === 'done') {
+              activeToolCall.value = ''
               console.log('Agent done')
             }
           } catch (e) {
             if (e instanceof SyntaxError) {
               if (currentEvent === 'answer' && data) {
                 fullResponse = data
+                activeToolCall.value = ''
                 if (assistantMessageIndex === -1) {
                   isLoading.value = false
                   assistantMessageIndex = ensureAssistantMessage()
                 }
-                messages.value[assistantMessageIndex].textHtml = marked(renderLatex(fullResponse))
+                messages.value[assistantMessageIndex].textHtml = renderAssistantTextHtml(fullResponse)
                 syncAssistantMessageContent(assistantMessageIndex)
                 await nextTick()
                 scrollToBottom()
@@ -1285,6 +1657,7 @@ const sendMessage = async () => {
     }
 
     isLoading.value = false
+    activeToolCall.value = ''
 
   } catch (err) {
     console.error('Error sending message:', err)
@@ -1302,6 +1675,7 @@ const sendMessage = async () => {
     })
     
     isLoading.value = false
+    activeToolCall.value = ''
     
     await nextTick()
     scrollToBottom()
@@ -1335,6 +1709,10 @@ onMounted(async () => {
   // 鍔犺浇瀵硅瘽鍒楄〃
   await loadConversations()
 
+  if (route.query.conversationId) {
+    await switchConversation(Number(route.query.conversationId))
+  }
+
   if (window.innerWidth > 1024) {
     sidebarOpen.value = true
   }
@@ -1360,6 +1738,15 @@ onMounted(async () => {
     }
   }
 })
+
+watch(
+  () => route.query.conversationId,
+  async (conversationId) => {
+    if (!conversationId) return
+    if (String(currentConversation.value?.id) === String(conversationId)) return
+    await switchConversation(Number(conversationId))
+  }
+)
 
 onBeforeUnmount(() => {
   stopPaperLibraryPolling()
@@ -1654,6 +2041,29 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.chat-header h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 34px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
 .header-actions {
   display: flex;
   gap: 10px;
@@ -1664,6 +2074,156 @@ onBeforeUnmount(() => {
   background: rgba(8, 13, 28, 0.38);
   backdrop-filter: blur(14px);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+}
+
+.header-actions.compact-attachments {
+  position: relative;
+  max-width: min(420px, 100%);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+  justify-content: flex-end;
+}
+
+.memory-header-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  min-width: 128px;
+  padding: 11px 20px;
+  border-color: rgba(125, 92, 255, 0.46);
+  background:
+    linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(139, 92, 246, 0.44)),
+    rgba(15, 23, 42, 0.82);
+  color: #f8fafc;
+  font-weight: 800;
+  letter-spacing: 0;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 14px 34px rgba(76, 29, 149, 0.32),
+    0 0 28px rgba(56, 189, 248, 0.12);
+}
+
+.memory-header-btn:hover:not(:disabled) {
+  border-color: rgba(56, 189, 248, 0.62);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 18px 42px rgba(76, 29, 149, 0.42),
+    0 0 34px rgba(56, 189, 248, 0.24);
+}
+
+.header-attachments-control {
+  position: relative;
+}
+
+.header-attachment-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+}
+
+.header-attachment-trigger:hover {
+  border-color: var(--border-glow);
+  color: var(--text-primary);
+}
+
+.header-attachment-trigger-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.header-attachment-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.14);
+  color: var(--accent-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.header-attachments-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(360px, calc(100vw - 48px));
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(10, 16, 32, 0.96);
+  border: 1px solid var(--border-primary);
+  box-shadow: 0 22px 44px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(16px);
+  z-index: 30;
+}
+
+.header-attachments-menu-title {
+  padding: 4px 6px 10px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.header-attachments-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.header-attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid var(--border-primary);
+}
+
+.header-attachment-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.header-attachment-remove {
+  padding: 0;
+  background: transparent;
+  color: var(--accent-danger);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.header-attachment-remove:hover {
+  color: #fda4af;
 }
 
 .paper-upload-input {
@@ -1694,67 +2254,21 @@ onBeforeUnmount(() => {
   background: rgba(5, 8, 23, 0.48);
 }
 
+.header-action-btn.danger {
+  border-color: rgba(244, 63, 94, 0.28);
+  background: rgba(127, 29, 29, 0.18);
+  color: #fda4af;
+}
+
+.header-action-btn.danger:hover:not(:disabled) {
+  border-color: rgba(244, 63, 94, 0.5);
+  color: #fecdd3;
+  box-shadow: 0 0 24px rgba(244, 63, 94, 0.16);
+}
+
 .header-action-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.attached-papers-bar {
-  width: min(1180px, calc(100% - 64px));
-  margin: 0 auto 16px;
-  padding: 14px 16px;
-  border-radius: 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-primary);
-}
-
-.attached-papers-label {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-tertiary);
-  margin-bottom: 10px;
-}
-
-.attached-papers-list {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.attached-paper-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
-}
-
-.attached-paper-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.attached-paper-name {
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.attached-paper-id {
-  color: var(--text-tertiary);
-  font-size: 11px;
-}
-
-.chip-remove-btn {
-  border: none;
-  background: transparent;
-  color: var(--accent-danger);
-  cursor: pointer;
-  font-size: 12px;
 }
 
 .paper-library-overlay {
@@ -1909,6 +2423,126 @@ onBeforeUnmount(() => {
 .paper-library-empty,
 .paper-library-error {
   padding: 24px;
+}
+
+.memory-editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.memory-editor-modal {
+  width: min(960px, 100%);
+  max-height: min(86vh, 860px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-primary);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 80% 0%, rgba(56, 189, 248, 0.1), transparent 26%),
+    var(--bg-primary);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+}
+
+.memory-editor-header,
+.memory-editor-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px;
+}
+
+.memory-editor-header {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.memory-editor-header h3,
+.memory-editor-header p {
+  margin: 0;
+}
+
+.memory-editor-header h3 {
+  font-size: 24px;
+}
+
+.memory-editor-header p,
+.memory-editor-stats {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.memory-editor-state {
+  margin: 16px 22px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.memory-editor-state.error {
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  background: rgba(127, 29, 29, 0.18);
+  color: #fda4af;
+}
+
+.memory-editor-state.success {
+  border: 1px solid rgba(34, 197, 94, 0.32);
+  background: rgba(20, 83, 45, 0.16);
+  color: #86efac;
+}
+
+.memory-editor-body {
+  min-height: 420px;
+  flex: 1;
+  padding: 18px 22px;
+}
+
+.memory-editor-loading {
+  height: 420px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-secondary);
+}
+
+.memory-editor-textarea {
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  resize: vertical;
+  padding: 18px;
+  border: 1px solid var(--border-primary);
+  border-radius: 14px;
+  outline: none;
+  background: rgba(5, 8, 23, 0.62);
+  color: var(--text-primary);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.memory-editor-textarea:focus {
+  border-color: var(--border-glow);
+  box-shadow: var(--glow-primary);
+}
+
+.memory-editor-footer {
+  align-items: center;
+  border-top: 1px solid var(--border-primary);
+}
+
+.memory-editor-stats,
+.memory-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .chat-messages {
@@ -2404,6 +3038,13 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 6px;
   padding: 16px 20px;
+}
+
+.tool-call-status {
+  padding: 12px 20px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: 'SF Mono', 'Consolas', monospace;
 }
 
 .typing-indicator span {
@@ -2976,7 +3617,7 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
-.message-text :deep(.mindmap-card) {
+.message-mindmaps :deep(.mindmap-card) {
   margin: 20px 0;
   padding: 18px;
   border-radius: 16px;
@@ -2984,31 +3625,120 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-primary);
 }
 
-.message-text :deep(.mindmap-card-header) {
+.message-mindmaps :deep(.mindmap-card-header) {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 14px;
 }
 
-.message-text :deep(.mindmap-card-title) {
+.message-mindmaps :deep(.mindmap-card-meta) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.message-mindmaps :deep(.mindmap-card-title) {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-tertiary);
 }
 
-.message-text :deep(.mindmap-card-subtitle) {
+.message-mindmaps :deep(.mindmap-card-subtitle) {
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.message-text :deep(.mindmap-card-body) {
+.message-analyses {
+  margin: 20px 0;
+}
+
+.message-analyses :deep(.analysis-card) {
+  border-radius: 18px;
+  border: 1px solid rgba(122, 162, 255, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(14, 22, 48, 0.98), rgba(10, 16, 36, 0.98));
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(2, 8, 23, 0.28);
+}
+
+.message-analyses :deep(.analysis-card-header) {
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.message-analyses :deep(.analysis-card-kicker) {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-primary);
+  margin-bottom: 8px;
+}
+
+.message-analyses :deep(.analysis-card-title) {
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.message-analyses :deep(.analysis-card-body) {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+
+.message-analyses :deep(.analysis-section) {
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.54);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.message-analyses :deep(.analysis-section.highlight) {
+  background: linear-gradient(180deg, rgba(8, 47, 73, 0.52), rgba(15, 23, 42, 0.62));
+  border-color: rgba(56, 189, 248, 0.22);
+}
+
+.message-analyses :deep(.section-header) {
+  margin-bottom: 10px;
+}
+
+.message-analyses :deep(.section-header h4) {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #67d4ff;
+}
+
+.message-analyses :deep(.section-content) {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+.message-analyses :deep(.highlight-title) {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.message-text :deep(.mindmap-artifact-note) {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.message-mindmaps :deep(.mindmap-card-body) {
   overflow-x: auto;
 }
 
-.message-text :deep(.chat-jsmind-container) {
+.message-mindmaps :deep(.chat-jsmind-container) {
   width: 100%;
   min-width: 720px;
   height: 520px;
@@ -3018,14 +3748,14 @@ onBeforeUnmount(() => {
   border-radius: 14px;
 }
 
-.message-text :deep(.chat-jsmind-container .jsmind-inner) {
+.message-mindmaps :deep(.chat-jsmind-container .jsmind-inner) {
   background: #ffffff;
   font-family: "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
   width: 100%;
   height: 100%;
 }
 
-.message-text :deep(.chat-jsmind-container jmnode) {
+.message-mindmaps :deep(.chat-jsmind-container jmnode) {
   border-radius: 8px;
   padding: 8px 16px;
   font-size: 14px;
@@ -3034,7 +3764,7 @@ onBeforeUnmount(() => {
   transition: all 0.3s ease;
 }
 
-.message-text :deep(.chat-jsmind-container jmnode:hover) {
+.message-mindmaps :deep(.chat-jsmind-container jmnode:hover) {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   transform: translateY(-2px);
 }
@@ -3049,6 +3779,23 @@ onBeforeUnmount(() => {
     flex-direction: column;
     gap: 12px;
     align-items: flex-start;
+  }
+
+  .message-analyses :deep(.analysis-card-header) {
+    padding: 18px 18px 14px;
+  }
+
+  .message-analyses :deep(.analysis-card-title) {
+    font-size: 22px;
+  }
+
+  .message-analyses :deep(.analysis-card-body) {
+    padding: 18px;
+  }
+
+  .message-mindmaps :deep(.mindmap-card-header) {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
@@ -3148,9 +3895,6 @@ onBeforeUnmount(() => {
     width: min(100% - 40px, 920px);
   }
 
-  .attached-papers-bar {
-    width: min(100% - 40px, 920px);
-  }
 }
 
 @media (max-width: 768px) {
@@ -3168,6 +3912,11 @@ onBeforeUnmount(() => {
   .header-actions {
     width: 100%;
     justify-content: stretch;
+  }
+
+  .header-actions.compact-attachments {
+    width: auto;
+    justify-content: flex-start;
   }
 
   .header-action-btn {
@@ -3235,10 +3984,6 @@ onBeforeUnmount(() => {
   }
 
   .chat-input-wrapper {
-    width: calc(100% - 32px);
-  }
-
-  .attached-papers-bar {
     width: calc(100% - 32px);
   }
 

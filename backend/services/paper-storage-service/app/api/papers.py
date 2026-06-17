@@ -12,9 +12,10 @@ import httpx
 import pdfplumber
 from dotenv import load_dotenv
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from jose import jwt
 from minio.error import S3Error
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
@@ -23,8 +24,11 @@ from app.schemas.paper import (
     DeleteResponse,
     PaperInfo,
     PaperListResponse,
+    PaperRenameRequest,
+    PaperStatsResponse,
     PaperStatusResponse,
     PaperUploadResponse,
+    WeeklyCount,
 )
 from app.utils.auth_client import get_current_user
 from app.utils.minio_client import MINIO_BUCKET, ensure_bucket_exists, get_minio_client
@@ -40,6 +44,15 @@ INDEX_REQUEST_TIMEOUT_SECONDS = float(os.getenv("INDEX_REQUEST_TIMEOUT_SECONDS",
 STALE_INDEXING_MINUTES = int(os.getenv("STALE_INDEXING_MINUTES", "30"))
 
 router = APIRouter(prefix="/api/papers", tags=["paper-storage"])
+
+DASHBOARD_FIELDS = {
+    "Algorithms": ("algorithm", "optimization", "sorting", "graph", "complexity", "theory"),
+    "Data": ("data", "database", "dataset", "mining", "analytics", "retrieval"),
+    "Systems": ("system", "distributed", "architecture", "cloud", "network", "runtime"),
+    "AI/ML": ("machine learning", "deep learning", "neural", "transformer", "llm", "ai", "model"),
+    "Theory": ("proof", "logic", "formal", "mathematics", "theorem", "complexity"),
+    "Security": ("security", "privacy", "cryptography", "attack", "adversarial", "secure"),
+}
 
 
 def _serialize_datetime(value):
@@ -65,6 +78,63 @@ def _build_status_message(paper: Paper) -> str:
     if status_value == "indexing":
         return "File uploaded successfully. Vector indexing is in progress."
     return "File uploaded successfully."
+
+
+def _month_start(now: datetime) -> datetime:
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _week_windows(now: datetime, weeks: int = 30):
+    current_week_start = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    first_week_start = current_week_start - timedelta(weeks=weeks - 1)
+    return [
+        (
+            first_week_start + timedelta(weeks=index),
+            first_week_start + timedelta(weeks=index + 1),
+        )
+        for index in range(weeks)
+    ]
+
+
+def _format_weekly_counts(timestamps, now: datetime) -> list[WeeklyCount]:
+    windows = _week_windows(now)
+    counts = [0 for _ in windows]
+
+    for timestamp in timestamps:
+        if not timestamp:
+            continue
+        for index, (start, end) in enumerate(windows):
+            if start <= timestamp < end:
+                counts[index] += 1
+                break
+
+    return [
+        WeeklyCount(
+            label=f"W{index + 1}",
+            value=counts[index],
+            start=start.isoformat(),
+            end=(end - timedelta(microseconds=1)).isoformat(),
+        )
+        for index, (start, end) in enumerate(windows)
+    ]
+
+
+def _classify_field(paper: Paper) -> str:
+    text = " ".join(
+        value or ""
+        for value in (paper.title, paper.original_name, paper.abstract, paper.authors)
+    ).lower()
+
+    best_field = "AI/ML"
+    best_score = 0
+    for field, keywords in DASHBOARD_FIELDS.items():
+        score = sum(1 for keyword in keywords if keyword in text)
+        if score > best_score:
+            best_field = field
+            best_score = score
+    return best_field
 
 
 def _set_paper_status(object_name: str, **fields):
@@ -445,6 +515,68 @@ async def list_papers(
         )
 
 
+@router.get("/stats", response_model=PaperStatsResponse)
+async def get_paper_stats(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return dashboard-friendly paper statistics for the current user."""
+    try:
+        _mark_stale_indexing_jobs(db)
+        now = datetime.utcnow()
+        month_start = _month_start(now)
+        query = db.query(Paper).filter(Paper.user_id == current_user["id"])
+        papers = query.all()
+
+        status_counts = {
+            "indexed": 0,
+            "indexing": 0,
+            "failed": 0,
+            "uploaded": 0,
+        }
+        field_distribution = {field: 0 for field in DASHBOARD_FIELDS}
+        uploaded_this_month = 0
+        indexed_this_month = 0
+
+        for paper in papers:
+            status_value = paper.processing_status or "uploaded"
+            if status_value in status_counts:
+                status_counts[status_value] += 1
+
+            if paper.created_at and paper.created_at >= month_start:
+                uploaded_this_month += 1
+            if paper.indexed_at and paper.indexed_at >= month_start:
+                indexed_this_month += 1
+
+            field_distribution[_classify_field(paper)] += 1
+
+        recent_papers = (
+            query.order_by(Paper.updated_at.desc(), Paper.created_at.desc())
+            .limit(10)
+            .all()
+        )
+        weekly_uploads = _format_weekly_counts([paper.created_at for paper in papers], now)
+
+        return PaperStatsResponse(
+            total=len(papers),
+            indexed=status_counts["indexed"],
+            indexing=status_counts["indexing"],
+            failed=status_counts["failed"],
+            uploaded=status_counts["uploaded"],
+            uploaded_this_month=uploaded_this_month,
+            indexed_this_month=indexed_this_month,
+            recent_papers=[PaperInfo.from_orm(paper) for paper in recent_papers],
+            weekly_uploads=weekly_uploads,
+            field_distribution=field_distribution,
+        )
+    except Exception as exc:
+        logger.exception("Paper stats error for user %s", current_user["id"])
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load paper stats: {exc}",
+        )
+
+
 @router.get("/status/{object_name}", response_model=PaperStatusResponse)
 async def get_paper_status(
     object_name: str,
@@ -462,6 +594,35 @@ async def get_paper_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found.")
 
     return _build_status_response(paper)
+
+
+@router.patch("/rename/{object_name}", response_model=PaperInfo)
+async def rename_paper(
+    object_name: str,
+    payload: PaperRenameRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update the display name for a paper without changing its object id."""
+    paper = db.query(Paper).filter(
+        Paper.object_name == object_name,
+        Paper.user_id == current_user["id"],
+    ).first()
+    if not paper:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found.")
+
+    new_name = " ".join(payload.original_name.strip().split())
+    if not new_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Paper name cannot be empty.")
+    if not new_name.lower().endswith(".pdf"):
+        new_name = f"{new_name}.pdf"
+
+    paper.original_name = new_name
+    paper.title = Path(new_name).stem
+    db.commit()
+    db.refresh(paper)
+    logger.info("Paper renamed: %s -> %s by user %s", object_name, new_name, current_user["id"])
+    return PaperInfo.from_orm(paper)
 
 
 @router.get("/download/{object_name}")
@@ -600,3 +761,45 @@ async def delete_paper(
 async def health_check():
     """Health check."""
     return {"status": "healthy", "service": "paper-storage"}
+
+
+@router.get("/ready")
+async def readiness_check(db: Session = Depends(get_db)):
+    """Readiness check for dependencies required by paper upload and indexing."""
+    checks = {}
+    ready = True
+
+    try:
+        db.execute(text("SELECT 1"))
+        checks["database"] = {"status": "ok"}
+    except Exception as exc:
+        ready = False
+        logger.warning("Paper storage readiness database check failed: %s", exc)
+        checks["database"] = {
+            "status": "error",
+            "detail": _truncate_error(str(exc), 200),
+        }
+
+    try:
+        client = get_minio_client()
+        bucket_exists = client.bucket_exists(MINIO_BUCKET)
+        checks["object_storage"] = {
+            "status": "ok",
+            "bucket": MINIO_BUCKET,
+            "bucketExists": bucket_exists,
+        }
+    except Exception as exc:
+        ready = False
+        logger.warning("Paper storage readiness object storage check failed: %s", exc)
+        checks["object_storage"] = {
+            "status": "error",
+            "detail": _truncate_error(str(exc), 200),
+        }
+
+    body = {
+        "status": "ready" if ready else "not_ready",
+        "service": "paper-storage",
+        "checks": checks,
+    }
+    status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=status_code, content=body)

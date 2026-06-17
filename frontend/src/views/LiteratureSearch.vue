@@ -2,8 +2,9 @@
   <div class="literature-search">
     <div class="search-header">
       <div class="header-section">
-        <h1 class="page-title">Literature Search</h1>
-        <p class="page-subtitle">Powered by OpenAlex - 250M+ Academic Papers</p>
+        <p class="eyebrow">Literature Search</p>
+        <h1>Literature workspace</h1>
+        <p class="subtitle">Powered by OpenAlex - 250M+ academic papers.</p>
       </div>
       <div class="header-actions">
         <!-- 预留操作按钮位置，暂时为空 -->
@@ -118,11 +119,26 @@
       
       <div class="sort-options">
         <label class="sort-label">Sort by:</label>
-        <select v-model="sortBy" @change="handleSort" class="sort-select">
-          <option value="relevance">Relevance</option>
-          <option value="cited_by_count">Citations</option>
-          <option value="publication_date">Publication Date</option>
-        </select>
+        <div class="sort-dropdown">
+          <button class="sort-select" type="button" @click="sortMenuOpen = !sortMenuOpen">
+            <span>{{ currentSortLabel }}</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+          <div v-if="sortMenuOpen" class="sort-menu">
+            <button
+              v-for="option in sortOptions"
+              :key="option.value"
+              class="sort-menu-item"
+              :class="{ active: sortBy === option.value }"
+              type="button"
+              @click="selectSort(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -427,7 +443,7 @@ export default {
 </script>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { searchWorks, getWorkDetail, summarizeWork, exportCitations } from '../api/literature'
 
@@ -457,6 +473,12 @@ const currentPage = ref(1)
 const perPage = ref(20)
 const totalPages = ref(0)
 const sortBy = ref('relevance')
+const sortMenuOpen = ref(false)
+const sortOptions = [
+  { value: 'relevance', label: 'Relevance' },
+  { value: 'cited_by_count', label: 'Citations' },
+  { value: 'publication_date', label: 'Publication Date' }
+]
 
 // Detail modal
 const selectedWork = ref(null)
@@ -479,6 +501,8 @@ const activeFiltersCount = computed(() => {
   if (filters.value.open_access_only) count++
   return count
 })
+
+const currentSortLabel = computed(() => sortOptions.find(option => option.value === sortBy.value)?.label || 'Relevance')
 
 // Methods
 async function handleSearch() {
@@ -551,6 +575,30 @@ function clearSearch() {
 function handleSort() {
   handleSearch()
 }
+
+function selectSort(value) {
+  if (sortBy.value === value) {
+    sortMenuOpen.value = false
+    return
+  }
+  sortBy.value = value
+  sortMenuOpen.value = false
+  handleSort()
+}
+
+function closeSortMenuOnOutsideClick(event) {
+  if (!event.target.closest?.('.sort-dropdown')) {
+    sortMenuOpen.value = false
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('click', closeSortMenuOnOutsideClick)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', closeSortMenuOnOutsideClick)
+})
 
 function goToPage(page) {
   if (page < 1 || page > totalPages.value) return
@@ -670,21 +718,44 @@ function truncateText(text, maxLength) {
 
 <style scoped>
 .literature-search {
-  max-width: 1600px;
-  margin: 0 auto;
-  min-height: 100vh;
+  width: 100%;
+  min-height: calc(100vh - 68px);
+  color: var(--text-primary);
 }
 
 .search-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 32px;
-  gap: 24px;
+  margin-bottom: 28px;
+  gap: 18px;
 }
 
 .header-section {
   flex: 1;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.search-header h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 34px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 15px;
 }
 
 .header-actions {
@@ -896,13 +967,59 @@ function truncateText(text, maxLength) {
   font-size: 0.875rem;
 }
 
+.sort-dropdown {
+  position: relative;
+  min-width: 180px;
+}
+
 .sort-select {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
   color: var(--text-primary);
   cursor: pointer;
+}
+
+.sort-select:hover {
+  border-color: rgba(102, 126, 234, 0.5);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.sort-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(102, 126, 234, 0.38);
+  border-radius: 10px;
+  background: rgba(10, 16, 32, 0.98);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.36);
+}
+
+.sort-menu-item {
+  width: 100%;
+  display: block;
+  padding: 0.7rem 0.85rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sort-menu-item:hover,
+.sort-menu-item.active {
+  background: rgba(102, 126, 234, 0.22);
+  color: var(--text-primary);
 }
 
 /* Loading State */
@@ -1491,4 +1608,3 @@ function truncateText(text, maxLength) {
   }
 }
 </style>
-
