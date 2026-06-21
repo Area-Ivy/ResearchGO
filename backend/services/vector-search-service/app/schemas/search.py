@@ -8,8 +8,10 @@ from pydantic import BaseModel, Field
 class SemanticSearchRequest(BaseModel):
     """语义搜索请求"""
     query: str = Field(..., description="搜索查询", min_length=1)
-    top_k: int = Field(10, description="返回结果数量", ge=1, le=50)
+    top_k: Optional[int] = Field(None, description="返回结果数量", ge=1, le=20)
     uploaded_after: Optional[str] = Field(None, description="过滤上传时间（ISO格式）")
+    use_reranker: Optional[bool] = Field(None, description="Override user reranker setting for this request")
+    translate_query: Optional[bool] = Field(None, description="Override user query translation setting for this request")
 
 
 class SearchResult(BaseModel):
@@ -47,7 +49,9 @@ class PaperQARequest(BaseModel):
     paper_id: str = Field(..., description="论文ID（MinIO对象名）")
     question: str = Field(..., description="用户问题", min_length=1)
     chat_history: List[Dict[str, str]] = Field(default_factory=list, description="聊天历史")
-    top_k: int = Field(10, description="检索相关内容数量", ge=1, le=20)
+    top_k: Optional[int] = Field(None, description="检索相关内容数量", ge=1, le=20)
+    use_reranker: Optional[bool] = Field(None, description="Override user reranker setting for this request")
+    translate_query: Optional[bool] = Field(None, description="Override user query translation setting for this request")
 
 
 class PaperQAResponse(BaseModel):

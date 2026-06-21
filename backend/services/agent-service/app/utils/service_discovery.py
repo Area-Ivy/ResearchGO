@@ -18,6 +18,7 @@ SERVICE_PORTS = {
     "literature-search-service": 8005,
     "mindmap-service": 8007,
     "analysis-service": 8008,
+    "research-mcp-server": 8010,
 }
 
 # 环境变量名称映射
@@ -29,6 +30,7 @@ ENV_VAR_MAPPING = {
     "literature-search-service": "LITERATURE_SERVICE_URL",
     "mindmap-service": "MINDMAP_SERVICE_URL",
     "analysis-service": "ANALYSIS_SERVICE_URL",
+    "research-mcp-server": "MCP_SERVER_URL",
 }
 
 
@@ -157,6 +159,9 @@ class ServiceDiscovery:
     
     async def analysis_service(self) -> str:
         return await self.get_url("analysis-service")
+
+    async def mcp_service(self) -> str:
+        return await self.get_url("research-mcp-server")
 
 
 # 全局实例

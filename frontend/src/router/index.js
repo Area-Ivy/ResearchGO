@@ -1,11 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Landing from '../views/Landing.vue'
-import Home from '../views/Home.vue'
+import Dashboard from '../views/Dashboard.vue'
 import Chat from '../views/Chat.vue'
 import LiteratureSearch from '../views/LiteratureSearch.vue'
 import PaperLibrary from '../views/PaperLibrary.vue'
 import PaperReview from '../views/PaperReview.vue'
-import MilvusManager from '../views/MilvusManager.vue'
+import Settings from '../views/Settings.vue'
 import Login from '../views/Login.vue'
 import { isAuthenticated } from '../api/auth'
 
@@ -25,7 +25,7 @@ const routes = [
   {
     path: '/dashboard',
     name: 'Dashboard',
-    component: Home,
+    component: Dashboard,
     meta: { requiresAuth: true }
   },
   {
@@ -33,6 +33,10 @@ const routes = [
     name: 'Chat',
     component: Chat,
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/memory',
+    redirect: '/settings'
   },
   {
     path: '/literature',
@@ -53,9 +57,9 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
-    path: '/milvus',
-    name: 'MilvusManager',
-    component: MilvusManager,
+    path: '/settings',
+    name: 'Settings',
+    component: Settings,
     meta: { requiresAuth: true }
   }
 ]
@@ -64,28 +68,21 @@ const router = createRouter({
   history: createWebHistory(),
   routes,
   scrollBehavior(to, from, savedPosition) {
-    // 如果有保存的位置（浏览器前进/后退）
     if (savedPosition) {
       return savedPosition
     }
-    // 路由切换时始终滚动到顶部
     return { top: 0, behavior: 'instant' }
   }
 })
 
-// 路由守卫
 router.beforeEach((to, from, next) => {
   const authenticated = isAuthenticated()
 
-  // 如果路由需要认证
   if (to.meta.requiresAuth && !authenticated) {
     next('/login')
-  }
-  // 如果已登录访问 Landing 或登录页，重定向到 Dashboard
-  else if (to.meta.requiresGuest && authenticated) {
+  } else if (to.meta.requiresGuest && authenticated) {
     next('/dashboard')
-  }
-  else {
+  } else {
     next()
   }
 })

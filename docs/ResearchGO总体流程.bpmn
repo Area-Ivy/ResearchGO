@@ -1,0 +1,390 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+  id="Definitions_AgentMainline"
+  targetNamespace="http://researchgo/bpmn/agent-mainline">
+
+  <bpmn:process id="Process_AgentMainline" name="ResearchGO&#24635;&#20307;&#19994;&#21153;&#27969;&#31243;&#65288;Agent&#20027;&#32447;&#65289;" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="Lane_User" name="&#29992;&#25143;">
+        <bpmn:flowNodeRef>StartEvent_1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Login</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SubmitGoal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ViewResult</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Continue</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_Completed</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Agent" name="Agent&#32534;&#25490;&#23618;">
+        <bpmn:flowNodeRef>Task_AuthSession</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_LoginValid</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_LoginFailed</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_LoginFailed</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_LoadContext</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PlanTask</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_DispatchCapability</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AssembleResponse</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SaveSession</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Service" name="&#19994;&#21153;&#33021;&#21147;&#26381;&#21153;">
+        <bpmn:flowNodeRef>Task_ExecuteCapability</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_ConcreteService" name="&#20855;&#20307;&#26381;&#21153;&#23618;">
+        <bpmn:flowNodeRef>Task_ServiceRouting</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_LiteratureService</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PaperService</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_VectorService</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AIService</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Infra" name="&#25968;&#25454;&#19982;&#27169;&#22411;&#22522;&#30784;&#35774;&#26045;" />
+    </bpmn:laneSet>
+
+    <bpmn:startEvent id="StartEvent_1" name="&#24320;&#22987;">
+      <bpmn:outgoing>Flow_1</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:task id="Task_Login" name="&#27880;&#20876;&#25110;&#30331;&#24405;&#31995;&#32479;">
+      <bpmn:incoming>Flow_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_2</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:task id="Task_AuthSession" name="&#35748;&#35777;&#36523;&#20221;&#24182;&#24314;&#31435;&#20250;&#35805;">
+      <bpmn:incoming>Flow_2</bpmn:incoming>
+      <bpmn:outgoing>Flow_3</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:exclusiveGateway id="Gateway_LoginValid" name="&#30331;&#24405;&#25104;&#21151;?">
+      <bpmn:incoming>Flow_3</bpmn:incoming>
+      <bpmn:outgoing>Flow_4</bpmn:outgoing>
+      <bpmn:outgoing>Flow_5</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:task id="Task_LoginFailed" name="&#36820;&#22238;&#30331;&#24405;&#22833;&#36133;&#20449;&#24687;">
+      <bpmn:incoming>Flow_5</bpmn:incoming>
+      <bpmn:outgoing>Flow_6</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:endEvent id="EndEvent_LoginFailed" name="&#32467;&#26463;">
+      <bpmn:incoming>Flow_6</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:task id="Task_SubmitGoal" name="&#25552;&#20132;&#30740;&#31350;&#30446;&#26631;&#25110;&#38382;&#39064;">
+      <bpmn:incoming>Flow_4</bpmn:incoming>
+      <bpmn:incoming>Flow_13</bpmn:incoming>
+      <bpmn:outgoing>Flow_7</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:task id="Task_LoadContext" name="&#35835;&#21462;&#19978;&#19979;&#25991;&#19982;&#21382;&#21490;&#35760;&#24405;">
+      <bpmn:incoming>Flow_7</bpmn:incoming>
+      <bpmn:outgoing>Flow_8</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:task id="Task_PlanTask" name="&#35782;&#21035;&#24847;&#22270;&#24182;&#35268;&#21010;&#22788;&#29702;&#31574;&#30053;">
+      <bpmn:incoming>Flow_8</bpmn:incoming>
+      <bpmn:outgoing>Flow_9</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:task id="Task_DispatchCapability" name="&#36873;&#25321;&#24182;&#35843;&#24230;&#33021;&#21147;&#26381;&#21153;">
+      <bpmn:incoming>Flow_9</bpmn:incoming>
+      <bpmn:outgoing>Flow_10</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:task id="Task_ExecuteCapability" name="&#25191;&#34892;&#23545;&#24212;&#33021;&#21147;">
+      <bpmn:incoming>Flow_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_10A</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:task id="Task_ServiceRouting" name="&#26144;&#23556;&#21040;&#23545;&#24212;&#24494;&#26381;&#21153;">
+      <bpmn:incoming>Flow_10A</bpmn:incoming>
+      <bpmn:outgoing>Flow_10B</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:task id="Task_LiteratureService" name="&#25991;&#29486;&#26816;&#32034;&#26381;&#21153;" />
+
+    <bpmn:task id="Task_PaperService" name="&#35770;&#25991;&#31649;&#29702;&#19982;&#24314;&#24211;&#26381;&#21153;" />
+
+    <bpmn:task id="Task_VectorService" name="&#35821;&#20041;&#26816;&#32034;&#26381;&#21153;" />
+
+    <bpmn:task id="Task_AIService" name="AI&#38382;&#31572;&#19982;&#28145;&#24230;&#20998;&#26512;&#26381;&#21153;" />
+
+    <bpmn:task id="Task_AssembleResponse" name="&#27719;&#24635;&#32467;&#26524;&#24182;&#29983;&#25104;&#32479;&#19968;&#21709;&#24212;">
+      <bpmn:incoming>Flow_10B</bpmn:incoming>
+      <bpmn:outgoing>Flow_12</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:task id="Task_SaveSession" name="&#20445;&#23384;&#20250;&#35805;&#19982;&#20219;&#21153;&#35760;&#24405;">
+      <bpmn:incoming>Flow_12</bpmn:incoming>
+      <bpmn:outgoing>Flow_14</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:task id="Task_ViewResult" name="&#26597;&#30475;Agent&#36820;&#22238;&#32467;&#26524;">
+      <bpmn:incoming>Flow_14</bpmn:incoming>
+      <bpmn:outgoing>Flow_15</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:exclusiveGateway id="Gateway_Continue" name="&#32487;&#32493;&#36861;&#38382;&#25110;&#32467;&#26463;?">
+      <bpmn:incoming>Flow_15</bpmn:incoming>
+      <bpmn:outgoing>Flow_13</bpmn:outgoing>
+      <bpmn:outgoing>Flow_16</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:endEvent id="EndEvent_Completed" name="&#32467;&#26463;">
+      <bpmn:incoming>Flow_16</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:dataStoreReference id="Data_DB" name="&#29992;&#25143;&#19982;&#20250;&#35805;&#25968;&#25454;" />
+    <bpmn:dataStoreReference id="Data_Knowledge" name="&#35770;&#25991;&#24211; / &#21521;&#37327;&#24211; / OpenAlex" />
+    <bpmn:dataStoreReference id="Data_LLM" name="&#22823;&#27169;&#22411;&#33021;&#21147;" />
+
+    <bpmn:textAnnotation id="TextAnnotation_ServiceExamples">
+      <bpmn:text>&#25991;&#29486;&#26816;&#32034; / &#19978;&#20256;&#24314;&#24211; / &#35821;&#20041;&#26816;&#32034; / &#35770;&#25991;&#38382;&#31572; / &#28145;&#24230;&#20998;&#26512;</bpmn:text>
+    </bpmn:textAnnotation>
+
+    <bpmn:association id="Assoc_1" sourceRef="Task_AuthSession" targetRef="Data_DB" />
+    <bpmn:association id="Assoc_2" sourceRef="Task_LoadContext" targetRef="Data_DB" />
+    <bpmn:association id="Assoc_3" sourceRef="Task_SaveSession" targetRef="Data_DB" />
+    <bpmn:association id="Assoc_4" sourceRef="Task_LiteratureService" targetRef="Data_Knowledge" />
+    <bpmn:association id="Assoc_5" sourceRef="Task_AIService" targetRef="Data_LLM" />
+    <bpmn:association id="Assoc_6" sourceRef="Task_ServiceRouting" targetRef="TextAnnotation_ServiceExamples" />
+    <bpmn:association id="Assoc_7" sourceRef="Task_ServiceRouting" targetRef="Task_LiteratureService" />
+    <bpmn:association id="Assoc_8" sourceRef="Task_ServiceRouting" targetRef="Task_PaperService" />
+    <bpmn:association id="Assoc_9" sourceRef="Task_ServiceRouting" targetRef="Task_VectorService" />
+    <bpmn:association id="Assoc_10" sourceRef="Task_ServiceRouting" targetRef="Task_AIService" />
+
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="Task_Login" />
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_Login" targetRef="Task_AuthSession" />
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="Task_AuthSession" targetRef="Gateway_LoginValid" />
+    <bpmn:sequenceFlow id="Flow_4" sourceRef="Gateway_LoginValid" targetRef="Task_SubmitGoal" name="&#26159;" />
+    <bpmn:sequenceFlow id="Flow_5" sourceRef="Gateway_LoginValid" targetRef="Task_LoginFailed" name="&#21542;" />
+    <bpmn:sequenceFlow id="Flow_6" sourceRef="Task_LoginFailed" targetRef="EndEvent_LoginFailed" />
+    <bpmn:sequenceFlow id="Flow_7" sourceRef="Task_SubmitGoal" targetRef="Task_LoadContext" />
+    <bpmn:sequenceFlow id="Flow_8" sourceRef="Task_LoadContext" targetRef="Task_PlanTask" />
+    <bpmn:sequenceFlow id="Flow_9" sourceRef="Task_PlanTask" targetRef="Task_DispatchCapability" />
+    <bpmn:sequenceFlow id="Flow_10" sourceRef="Task_DispatchCapability" targetRef="Task_ExecuteCapability" />
+    <bpmn:sequenceFlow id="Flow_10A" sourceRef="Task_ExecuteCapability" targetRef="Task_ServiceRouting" />
+    <bpmn:sequenceFlow id="Flow_10B" sourceRef="Task_ServiceRouting" targetRef="Task_AssembleResponse" />
+    <bpmn:sequenceFlow id="Flow_12" sourceRef="Task_AssembleResponse" targetRef="Task_SaveSession" />
+    <bpmn:sequenceFlow id="Flow_13" sourceRef="Gateway_Continue" targetRef="Task_SubmitGoal" name="&#32487;&#32493;" />
+    <bpmn:sequenceFlow id="Flow_14" sourceRef="Task_SaveSession" targetRef="Task_ViewResult" />
+    <bpmn:sequenceFlow id="Flow_15" sourceRef="Task_ViewResult" targetRef="Gateway_Continue" />
+    <bpmn:sequenceFlow id="Flow_16" sourceRef="Gateway_Continue" targetRef="EndEvent_Completed" name="&#32467;&#26463;" />
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_AgentMainline">
+      <bpmndi:BPMNShape id="Lane_User_di" bpmnElement="Lane_User" isHorizontal="true">
+        <dc:Bounds x="100" y="80" width="2500" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Agent_di" bpmnElement="Lane_Agent" isHorizontal="true">
+        <dc:Bounds x="100" y="190" width="2500" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Service_di" bpmnElement="Lane_Service" isHorizontal="true">
+        <dc:Bounds x="100" y="320" width="2500" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_ConcreteService_di" bpmnElement="Lane_ConcreteService" isHorizontal="true">
+        <dc:Bounds x="100" y="440" width="2500" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Infra_di" bpmnElement="Lane_Infra" isHorizontal="true">
+        <dc:Bounds x="100" y="570" width="2500" height="110" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="130" y="117" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Login_di" bpmnElement="Task_Login">
+        <dc:Bounds x="200" y="95" width="130" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AuthSession_di" bpmnElement="Task_AuthSession">
+        <dc:Bounds x="390" y="215" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_LoginValid_di" bpmnElement="Gateway_LoginValid" isMarkerVisible="true">
+        <dc:Bounds x="590" y="230" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LoginFailed_di" bpmnElement="Task_LoginFailed">
+        <dc:Bounds x="700" y="215" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_LoginFailed_di" bpmnElement="EndEvent_LoginFailed">
+        <dc:Bounds x="880" y="237" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_SubmitGoal_di" bpmnElement="Task_SubmitGoal">
+        <dc:Bounds x="760" y="95" width="160" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LoadContext_di" bpmnElement="Task_LoadContext">
+        <dc:Bounds x="980" y="215" width="160" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PlanTask_di" bpmnElement="Task_PlanTask">
+        <dc:Bounds x="1200" y="215" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_DispatchCapability_di" bpmnElement="Task_DispatchCapability">
+        <dc:Bounds x="1430" y="215" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ExecuteCapability_di" bpmnElement="Task_ExecuteCapability">
+        <dc:Bounds x="1660" y="340" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ServiceRouting_di" bpmnElement="Task_ServiceRouting">
+        <dc:Bounds x="1660" y="455" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LiteratureService_di" bpmnElement="Task_LiteratureService">
+        <dc:Bounds x="1880" y="445" width="150" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PaperService_di" bpmnElement="Task_PaperService">
+        <dc:Bounds x="1880" y="505" width="180" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_VectorService_di" bpmnElement="Task_VectorService">
+        <dc:Bounds x="2080" y="445" width="150" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AIService_di" bpmnElement="Task_AIService">
+        <dc:Bounds x="2080" y="505" width="180" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AssembleResponse_di" bpmnElement="Task_AssembleResponse">
+        <dc:Bounds x="1890" y="215" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SaveSession_di" bpmnElement="Task_SaveSession">
+        <dc:Bounds x="2120" y="215" width="150" height="80" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_ViewResult_di" bpmnElement="Task_ViewResult">
+        <dc:Bounds x="2120" y="95" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Continue_di" bpmnElement="Gateway_Continue" isMarkerVisible="true">
+        <dc:Bounds x="2320" y="110" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_Completed_di" bpmnElement="EndEvent_Completed">
+        <dc:Bounds x="2440" y="117" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Data_DB_di" bpmnElement="Data_DB">
+        <dc:Bounds x="540" y="600" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Data_Knowledge_di" bpmnElement="Data_Knowledge">
+        <dc:Bounds x="1710" y="600" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Data_LLM_di" bpmnElement="Data_LLM">
+        <dc:Bounds x="1810" y="600" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_ServiceExamples_di" bpmnElement="TextAnnotation_ServiceExamples">
+        <dc:Bounds x="2300" y="455" width="240" height="76" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="166" y="135" />
+        <di:waypoint x="200" y="135" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <di:waypoint x="330" y="135" />
+        <di:waypoint x="465" y="135" />
+        <di:waypoint x="465" y="215" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_3_di" bpmnElement="Flow_3">
+        <di:waypoint x="540" y="255" />
+        <di:waypoint x="590" y="255" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_4_di" bpmnElement="Flow_4">
+        <di:waypoint x="615" y="230" />
+        <di:waypoint x="615" y="135" />
+        <di:waypoint x="760" y="135" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_5_di" bpmnElement="Flow_5">
+        <di:waypoint x="640" y="255" />
+        <di:waypoint x="700" y="255" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_6_di" bpmnElement="Flow_6">
+        <di:waypoint x="840" y="255" />
+        <di:waypoint x="880" y="255" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_7_di" bpmnElement="Flow_7">
+        <di:waypoint x="920" y="135" />
+        <di:waypoint x="1060" y="135" />
+        <di:waypoint x="1060" y="215" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_8_di" bpmnElement="Flow_8">
+        <di:waypoint x="1140" y="255" />
+        <di:waypoint x="1200" y="255" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_9_di" bpmnElement="Flow_9">
+        <di:waypoint x="1370" y="255" />
+        <di:waypoint x="1430" y="255" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_10_di" bpmnElement="Flow_10">
+        <di:waypoint x="1600" y="255" />
+        <di:waypoint x="1745" y="255" />
+        <di:waypoint x="1745" y="340" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_10A_di" bpmnElement="Flow_10A">
+        <di:waypoint x="1745" y="420" />
+        <di:waypoint x="1745" y="455" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_10B_di" bpmnElement="Flow_10B">
+        <di:waypoint x="1830" y="495" />
+        <di:waypoint x="1975" y="495" />
+        <di:waypoint x="1975" y="295" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_12_di" bpmnElement="Flow_12">
+        <di:waypoint x="2060" y="255" />
+        <di:waypoint x="2120" y="255" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_13_di" bpmnElement="Flow_13">
+        <di:waypoint x="2345" y="110" />
+        <di:waypoint x="2345" y="70" />
+        <di:waypoint x="840" y="70" />
+        <di:waypoint x="840" y="95" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_14_di" bpmnElement="Flow_14">
+        <di:waypoint x="2195" y="215" />
+        <di:waypoint x="2195" y="175" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_15_di" bpmnElement="Flow_15">
+        <di:waypoint x="2270" y="135" />
+        <di:waypoint x="2320" y="135" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_16_di" bpmnElement="Flow_16">
+        <di:waypoint x="2370" y="135" />
+        <di:waypoint x="2440" y="135" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Assoc_1_di" bpmnElement="Assoc_1">
+        <di:waypoint x="540" y="255" />
+        <di:waypoint x="565" y="600" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_2_di" bpmnElement="Assoc_2">
+        <di:waypoint x="1060" y="295" />
+        <di:waypoint x="590" y="625" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_3_di" bpmnElement="Assoc_3">
+        <di:waypoint x="2195" y="295" />
+        <di:waypoint x="590" y="625" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_4_di" bpmnElement="Assoc_4">
+        <di:waypoint x="1955" y="495" />
+        <di:waypoint x="1735" y="600" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_5_di" bpmnElement="Assoc_5">
+        <di:waypoint x="2170" y="555" />
+        <di:waypoint x="1835" y="600" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_6_di" bpmnElement="Assoc_6">
+        <di:waypoint x="1830" y="495" />
+        <di:waypoint x="2300" y="495" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_7_di" bpmnElement="Assoc_7">
+        <di:waypoint x="1830" y="475" />
+        <di:waypoint x="1880" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_8_di" bpmnElement="Assoc_8">
+        <di:waypoint x="1830" y="500" />
+        <di:waypoint x="1880" y="530" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_9_di" bpmnElement="Assoc_9">
+        <di:waypoint x="1830" y="485" />
+        <di:waypoint x="2080" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_10_di" bpmnElement="Assoc_10">
+        <di:waypoint x="1830" y="510" />
+        <di:waypoint x="2080" y="530" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

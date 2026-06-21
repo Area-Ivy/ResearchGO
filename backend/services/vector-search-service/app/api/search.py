@@ -3,7 +3,7 @@
 """
 import time
 import json
-from typing import List
+from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException, Depends
 from sse_starlette.sse import EventSourceResponse
 import logging
@@ -21,6 +21,7 @@ from app.services.milvus_service import get_milvus_service
 from app.services.openai_service import get_openai_service
 from app.services.hybrid_search_service import get_hybrid_search_service
 from app.services.bm25_service import get_bm25_service
+from app.services.retrieval_settings_service import get_retrieval_settings_service
 from app.utils.auth_client import get_current_user
 from app.utils.text_chunker import split_text_into_chunks
 from datetime import datetime
@@ -29,6 +30,46 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/vector", tags=["vector-search"])
+MAX_INDEX_CHUNKS = 60
+
+
+def _user_id(current_user: dict) -> Any:
+    return current_user.get("id") or current_user.get("user_id") or current_user.get("username") or "anonymous"
+
+
+def _to_search_result(hit: Dict[str, Any]) -> SearchResult:
+    return SearchResult(
+        id=hit.get("id", 0),
+        distance=hit.get("distance", 0),
+        relevance_score=hit.get("rerank_score", hit.get("rrf_score", hit.get("relevance_score", 0))),
+        paper_id=hit.get("paper_id", ""),
+        title=hit.get("title", ""),
+        file_name=hit.get("file_name", ""),
+        upload_time=hit.get("upload_time", ""),
+        chunk_id=hit.get("chunk_id", ""),
+        chunk_index=hit.get("chunk_index", 0),
+        content=hit.get("content", ""),
+        chunk_chars=hit.get("chunk_chars", 0),
+        page_range=hit.get("page_range", ""),
+        source=hit.get("source", ""),
+    )
+
+
+@router.get("/settings")
+async def get_retrieval_settings(current_user: dict = Depends(get_current_user)):
+    """Get current user's retrieval settings."""
+    service = get_retrieval_settings_service()
+    return service.get_settings(_user_id(current_user))
+
+
+@router.put("/settings")
+async def update_retrieval_settings(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+):
+    """Update current user's retrieval settings."""
+    service = get_retrieval_settings_service()
+    return service.update_settings(_user_id(current_user), payload)
 
 
 @router.post("/search", response_model=SemanticSearchResponse)
@@ -42,29 +83,24 @@ async def semantic_search(
     start_time = time.time()
     
     try:
-        # 1. 生成查询向量
-        openai_service = get_openai_service()
-        query_embeddings = await openai_service.generate_embeddings([request.query])
-        
-        # 2. 在Milvus中搜索
-        milvus_service = get_milvus_service()
-        
-        # 构建过滤表达式（如果需要）
-        filter_expr = None
-        if request.uploaded_after:
-            filter_expr = f'upload_time >= "{request.uploaded_after}"'
-        
-        results = milvus_service.search_similar(
-            query_vectors=query_embeddings,
-            top_k=request.top_k,
-            filter_expr=filter_expr
+        settings = get_retrieval_settings_service()
+        user_id = _user_id(current_user)
+        use_reranker = settings.resolve_use_reranker(user_id, request.use_reranker)
+        translate_query = settings.resolve_translate_query(user_id, request.translate_query)
+        top_k = settings.resolve_top_k(user_id, request.top_k)
+        initial_k = settings.resolve_initial_k(user_id, top_k=top_k)
+
+        hybrid_service = get_hybrid_search_service()
+        result = await hybrid_service.search(
+            query=request.query,
+            top_k=top_k,
+            paper_id=None,
+            use_reranker=use_reranker,
+            translate_query=translate_query,
+            initial_k=initial_k,
         )
-        
-        # 3. 格式化结果
-        search_results = []
-        if results and len(results) > 0:
-            for hit in results[0]:
-                search_results.append(SearchResult(**hit))
+
+        search_results = [_to_search_result(hit) for hit in result.get("final_results", [])]
         
         search_time = (time.time() - start_time) * 1000
         
@@ -91,28 +127,31 @@ async def paper_qa(
     start_time = time.time()
     
     try:
-        # 1. 生成问题向量
+        settings = get_retrieval_settings_service()
+        user_id = _user_id(current_user)
+        use_reranker = settings.resolve_use_reranker(user_id, request.use_reranker)
+        translate_query = settings.resolve_translate_query(user_id, request.translate_query)
+        top_k = settings.resolve_top_k(user_id, request.top_k)
+        initial_k = settings.resolve_initial_k(user_id, top_k=top_k)
+
+        hybrid_service = get_hybrid_search_service()
         openai_service = get_openai_service()
-        question_embeddings = await openai_service.generate_embeddings([request.question])
-        
-        # 2. 在Milvus中搜索相关chunk（限定在指定论文内）
-        milvus_service = get_milvus_service()
-        filter_expr = f'paper_id == "{request.paper_id}"'
-        
-        results = milvus_service.search_similar(
-            query_vectors=question_embeddings,
-            top_k=request.top_k,
-            filter_expr=filter_expr
+
+        search_result = await hybrid_service.search(
+            query=request.question,
+            top_k=top_k,
+            paper_id=request.paper_id,
+            use_reranker=use_reranker,
+            translate_query=translate_query,
+            initial_k=initial_k,
         )
-        
-        # 3. 提取相关内容作为上下文
+
         references = []
         context_parts = []
-        
-        if results and len(results) > 0:
-            for hit in results[0]:
-                references.append(SearchResult(**hit))
-                context_parts.append(f"[片段 {len(context_parts)+1}]\n{hit['content']}")
+
+        for hit in search_result.get("final_results", []):
+            references.append(_to_search_result(hit))
+            context_parts.append(f"[片段 {len(context_parts)+1}]\n{hit.get('content', '')}")
         
         context = "\n\n".join(context_parts)
         
@@ -348,15 +387,21 @@ async def paper_qa_stream(
             # 获取服务
             hybrid_service = get_hybrid_search_service()
             openai_service = get_openai_service()
+            settings = get_retrieval_settings_service()
+            user_id = _user_id(current_user)
+            use_reranker = settings.resolve_use_reranker(user_id, request.use_reranker)
+            translate_query = settings.resolve_translate_query(user_id, request.translate_query)
+            top_k = settings.resolve_top_k(user_id, request.top_k)
+            initial_k = settings.resolve_initial_k(user_id, top_k=top_k)
             
             # 1. 混合检索 (Dense + BM25 + RRF + Reranker + 查询翻译)
             search_result = await hybrid_service.search(
                 query=request.question,
-                top_k=request.top_k,
+                top_k=top_k,
                 paper_id=request.paper_id,
-                use_reranker=True,
-                translate_query=True,
-                initial_k=20  # 初始检索更多，让 RRF 和 Reranker 有更多候选
+                use_reranker=use_reranker,
+                translate_query=translate_query,
+                initial_k=initial_k
             )
             
             paper_chunks = search_result.get("final_results", [])
@@ -380,14 +425,14 @@ async def paper_qa_stream(
             
             # 2. 构建上下文
             context_parts = []
-            for i, chunk in enumerate(paper_chunks[:request.top_k], 1):
+            for i, chunk in enumerate(paper_chunks[:top_k], 1):
                 section_info = chunk.get('page_range', 'unknown')  # 实际存储的是 hierarchy_path
                 context_parts.append(f"【片段 {i}】({section_info})\n{chunk.get('content', '')}\n")
             context = "\n".join(context_parts)
             
             # 3. 发送引用信息（混合检索结果格式）
             references = []
-            for chunk in paper_chunks[:request.top_k]:
+            for chunk in paper_chunks[:top_k]:
                 references.append({
                     "id": chunk.get('id', 0),
                     "distance": chunk.get('distance', 0),
@@ -469,10 +514,10 @@ async def paper_qa_stream(
 @router.post("/hybrid-search")
 async def hybrid_search(
     query: str,
-    top_k: int = 10,
+    top_k: Optional[int] = None,
     paper_id: Optional[str] = None,
-    use_reranker: bool = True,
-    translate_query: bool = True,
+    use_reranker: Optional[bool] = None,
+    translate_query: Optional[bool] = None,
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -496,15 +541,21 @@ async def hybrid_search(
     start_time = time.time()
     
     try:
+        settings = get_retrieval_settings_service()
+        user_id = _user_id(current_user)
+        resolved_use_reranker = settings.resolve_use_reranker(user_id, use_reranker)
+        resolved_translate_query = settings.resolve_translate_query(user_id, translate_query)
+        resolved_top_k = settings.resolve_top_k(user_id, top_k)
+        resolved_initial_k = settings.resolve_initial_k(user_id, top_k=resolved_top_k)
         hybrid_service = get_hybrid_search_service()
         
         result = await hybrid_service.search(
             query=query,
-            top_k=top_k,
+            top_k=resolved_top_k,
             paper_id=paper_id,
-            use_reranker=use_reranker,
-            translate_query=translate_query,
-            initial_k=20
+            use_reranker=resolved_use_reranker,
+            translate_query=resolved_translate_query,
+            initial_k=resolved_initial_k
         )
         
         search_time = (time.time() - start_time) * 1000
@@ -521,8 +572,10 @@ async def hybrid_search(
                 "sparse_count": result["stats"]["sparse_count"],
                 "fused_count": result["stats"]["fused_count"],
                 "final_count": result["stats"]["final_count"],
-                "use_reranker": use_reranker,
-                "translate_query": translate_query
+                "use_reranker": resolved_use_reranker,
+                "translate_query": resolved_translate_query,
+                "top_k": resolved_top_k,
+                "initial_k": resolved_initial_k
             }
         }
         
@@ -534,8 +587,8 @@ async def hybrid_search(
 @router.post("/hybrid-qa")
 async def hybrid_qa(
     request: PaperQARequest,
-    use_reranker: bool = True,
-    translate_query: bool = True,
+    use_reranker: Optional[bool] = None,
+    translate_query: Optional[bool] = None,
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -546,16 +599,29 @@ async def hybrid_qa(
     start_time = time.time()
     
     try:
+        settings = get_retrieval_settings_service()
+        user_id = _user_id(current_user)
+        resolved_use_reranker = settings.resolve_use_reranker(
+            user_id,
+            request.use_reranker if request.use_reranker is not None else use_reranker,
+        )
+        resolved_translate_query = settings.resolve_translate_query(
+            user_id,
+            request.translate_query if request.translate_query is not None else translate_query,
+        )
+        resolved_top_k = settings.resolve_top_k(user_id, request.top_k)
+        resolved_initial_k = settings.resolve_initial_k(user_id, top_k=resolved_top_k)
         hybrid_service = get_hybrid_search_service()
         openai_service = get_openai_service()
         
         # 1. 混合检索（支持查询翻译）
         search_result = await hybrid_service.search(
             query=request.question,
-            top_k=request.top_k,
+            top_k=resolved_top_k,
             paper_id=request.paper_id,
-            use_reranker=use_reranker,
-            translate_query=translate_query
+            use_reranker=resolved_use_reranker,
+            translate_query=resolved_translate_query,
+            initial_k=resolved_initial_k
         )
         
         final_results = search_result["final_results"]
@@ -661,4 +727,3 @@ async def health_check():
         "milvus_connected": True,
         "features": ["dense_search", "sparse_search", "hybrid_search", "reranker", "query_translation", "structured_indexing"]
     }
-

@@ -3,8 +3,9 @@
     <!-- Header -->
     <div class="library-header">
       <div class="header-section">
-        <h1 class="page-title">Paper Library</h1>
-        <p class="page-subtitle">AI-powered semantic search for your research papers</p>
+        <p class="eyebrow">Paper Library</p>
+        <h1>Research library</h1>
+        <p class="subtitle">AI-powered semantic search for your research papers.</p>
       </div>
       <div class="header-actions">
         <div class="search-container">
@@ -94,13 +95,13 @@
         </svg>
       </button>
     </div>
-    <div v-if="uploadSuccess" class="status-message success-message">
+    <div v-if="uploadSuccessMessage" class="status-message success-message">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
         <polyline points="22 4 12 14.01 9 11.01"></polyline>
       </svg>
-      <span>File uploaded successfully!</span>
-      <button @click="uploadSuccess = false" class="dismiss-btn">
+      <span>{{ uploadSuccessMessage }}</span>
+      <button @click="clearSuccessMessage" class="dismiss-btn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18"></line>
           <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -301,11 +302,25 @@
           <div class="paper-info">
             <h4 class="paper-name" :title="paper.original_name">{{ paper.original_name }}</h4>
             <div class="paper-meta">
-              <span class="paper-size">{{ formatFileSize(paper.size) }}</span>
-              <span class="paper-date">{{ formatDate(paper.last_modified) }}</span>
+              <span class="paper-size">{{ formatFileSize(paper.file_size) }}</span>
+              <span class="paper-date">{{ formatDate(paper.created_at) }}</span>
+            </div>
+            <div class="paper-status-row">
+              <span class="paper-status-badge" :class="paper.processing_status">
+                {{ formatProcessingStatus(paper.processing_status) }}
+              </span>
+              <span class="paper-status-detail">
+                {{ getPaperStatusDetail(paper) }}
+              </span>
             </div>
           </div>
           <div class="paper-actions">
+            <button @click="openRenameModal(paper)" class="action-btn rename-btn" title="Rename">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 20h9"></path>
+                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+              </svg>
+            </button>
             <button @click="handleDownload(paper)" class="action-btn download-btn" title="Download">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -351,11 +366,49 @@
         </div>
       </div>
     </transition>
+
+    <!-- Rename Modal -->
+    <transition name="modal">
+      <div v-if="showRenameModal" class="modal-overlay" @click="closeRenameModal">
+        <div class="modal-content" @click.stop>
+          <div class="modal-header">
+            <h3>Rename Paper</h3>
+            <button @click="closeRenameModal" class="modal-close">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <form @submit.prevent="handleRename">
+            <div class="modal-body">
+              <label class="rename-label" for="rename-input">Name</label>
+              <input
+                id="rename-input"
+                ref="renameInput"
+                v-model="renameValue"
+                class="rename-input"
+                type="text"
+                maxlength="500"
+              />
+              <p v-if="renameError" class="rename-error">{{ renameError }}</p>
+              <p class="paper-name-preview">{{ paperToRename?.original_name }}</p>
+            </div>
+            <div class="modal-actions">
+              <button type="button" @click="closeRenameModal" class="btn-secondary">Cancel</button>
+              <button type="submit" class="btn-primary-action" :disabled="isRenaming">
+                {{ isRenaming ? 'Saving...' : 'Save' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script>
-import { uploadPaper, listPapers, downloadPaper, deletePaper } from '../api/papers'
+import { uploadPaper, listPapers, downloadPaper, deletePaper, renamePaper } from '../api/papers'
 import { semanticSearch, groupResultsByPaper, formatRelevance, generateCitation } from '../api/search'
 
 export default {
@@ -367,10 +420,16 @@ export default {
       isLoading: false,
       isUploading: false,
       isDeleting: false,
+      isRenaming: false,
       uploadError: null,
-      uploadSuccess: false,
+      uploadSuccessMessage: '',
       showDeleteModal: false,
+      showRenameModal: false,
       paperToDelete: null,
+      paperToRename: null,
+      renameValue: '',
+      renameError: '',
+      pollTimerId: null,
       // 搜索相关
       isSearching: false,
       searchResults: [],
@@ -397,12 +456,13 @@ export default {
       
       for (const result of this.searchResults) {
         const paperId = result.paper_id
+        const localPaper = this.papers.find(p => p.object_name === paperId)
         
         if (!papersMap[paperId]) {
           papersMap[paperId] = {
             paper_id: paperId,
-            file_name: result.file_name,
-            title: result.title,
+            file_name: localPaper?.original_name || result.file_name,
+            title: localPaper?.title || result.title,
             upload_time: result.upload_time,
             matched_chunks: 0,
             max_relevance: result.relevance_score,
@@ -433,17 +493,68 @@ export default {
   mounted() {
     this.loadPapers()
   },
+  beforeUnmount() {
+    this.stopPolling()
+  },
   methods: {
     async loadPapers() {
       this.isLoading = true
       try {
         const response = await listPapers()
         this.papers = response.papers || []
+        this.syncPollingState()
       } catch (error) {
         console.error('Failed to load papers:', error)
       } finally {
         this.isLoading = false
       }
+    },
+
+    syncPollingState() {
+      const hasIndexing = this.papers.some(paper => paper.processing_status === 'indexing')
+      if (hasIndexing) {
+        this.startPolling()
+      } else {
+        this.stopPolling()
+      }
+    },
+
+    startPolling() {
+      if (this.pollTimerId) return
+      this.pollTimerId = window.setInterval(async () => {
+        if (this.isLoading || this.isSearching) return
+        try {
+          const response = await listPapers()
+          this.papers = response.papers || []
+          if (!this.papers.some(paper => paper.processing_status === 'indexing')) {
+            this.stopPolling()
+          }
+        } catch (error) {
+          console.error('Polling papers failed:', error)
+        }
+      }, 4000)
+    },
+
+    stopPolling() {
+      if (this.pollTimerId) {
+        window.clearInterval(this.pollTimerId)
+        this.pollTimerId = null
+      }
+    },
+
+    showSuccessMessage(message, duration = 3000) {
+      this.uploadSuccessMessage = message
+      if (duration > 0) {
+        window.setTimeout(() => {
+          if (this.uploadSuccessMessage === message) {
+            this.uploadSuccessMessage = ''
+          }
+        }, duration)
+      }
+    },
+
+    clearSuccessMessage() {
+      this.uploadSuccessMessage = ''
     },
     
     async handleSemanticSearch() {
@@ -536,10 +647,7 @@ export default {
     copyPaperReference(paper) {
       const citation = `${paper.file_name} (${paper.matched_chunks} relevant sections, max relevance: ${this.formatRelevance(paper.max_relevance)})`
       navigator.clipboard.writeText(citation).then(() => {
-        this.uploadSuccess = true
-        setTimeout(() => {
-          this.uploadSuccess = false
-        }, 2000)
+        this.showSuccessMessage('Reference copied to clipboard.', 2000)
       }).catch(err => {
         console.error('Failed to copy:', err)
       })
@@ -566,15 +674,11 @@ export default {
     async uploadFile(file) {
       this.isUploading = true
       this.uploadError = null
-      this.uploadSuccess = false
+      this.uploadSuccessMessage = ''
 
       try {
-        await uploadPaper(file)
-        this.uploadSuccess = true
-        setTimeout(() => {
-          this.uploadSuccess = false
-        }, 3000)
-        // Reload papers list
+        const result = await uploadPaper(file)
+        this.showSuccessMessage(result.message || 'File uploaded successfully.', 5000)
         await this.loadPapers()
       } catch (error) {
         console.error('Upload failed:', error)
@@ -592,6 +696,53 @@ export default {
       } catch (error) {
         console.error('Download failed:', error)
         alert('Failed to download file')
+      }
+    },
+    openRenameModal(paper) {
+      this.paperToRename = paper
+      this.renameValue = paper.original_name || ''
+      this.renameError = ''
+      this.showRenameModal = true
+      this.$nextTick(() => {
+        this.$refs.renameInput?.focus()
+        this.$refs.renameInput?.select()
+      })
+    },
+    closeRenameModal() {
+      if (this.isRenaming) return
+      this.showRenameModal = false
+      this.paperToRename = null
+      this.renameValue = ''
+      this.renameError = ''
+    },
+    async handleRename() {
+      if (!this.paperToRename) return
+
+      const nextName = this.renameValue.trim()
+      if (!nextName) {
+        this.renameError = 'Name cannot be empty.'
+        return
+      }
+
+      this.isRenaming = true
+      this.renameError = ''
+      try {
+        const updatedPaper = await renamePaper(this.paperToRename.object_name, nextName)
+        const index = this.papers.findIndex(p => p.object_name === updatedPaper.object_name)
+        if (index >= 0) {
+          this.papers.splice(index, 1, updatedPaper)
+        } else {
+          this.papers.unshift(updatedPaper)
+        }
+        this.showSuccessMessage('Paper renamed.', 2500)
+        this.showRenameModal = false
+        this.paperToRename = null
+        this.renameValue = ''
+      } catch (error) {
+        console.error('Rename failed:', error)
+        this.renameError = error.response?.data?.detail || 'Failed to rename paper.'
+      } finally {
+        this.isRenaming = false
       }
     },
     confirmDelete(paper) {
@@ -616,11 +767,31 @@ export default {
       }
     },
     formatFileSize(bytes) {
+      if (!bytes) return '0 Bytes'
       if (bytes === 0) return '0 Bytes'
       const k = 1024
       const sizes = ['Bytes', 'KB', 'MB', 'GB']
       const i = Math.floor(Math.log(bytes) / Math.log(k))
       return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+    },
+    formatProcessingStatus(status) {
+      if (status === 'indexed') return 'Indexed'
+      if (status === 'indexing') return 'Indexing'
+      if (status === 'failed') return 'Failed'
+      return 'Uploaded'
+    },
+    getPaperStatusDetail(paper) {
+      if (paper.processing_status === 'indexed') {
+        const chunks = paper.chunks_created || 0
+        return `${chunks} chunks ready for search`
+      }
+      if (paper.processing_status === 'failed') {
+        return paper.processing_error || 'Indexing failed'
+      }
+      if (paper.processing_status === 'indexing') {
+        return 'Parsing PDF and writing vector index'
+      }
+      return 'Waiting for indexing'
     },
     formatDate(dateString) {
       if (!dateString) return 'Unknown'
@@ -648,20 +819,44 @@ export default {
 
 <style scoped>
 .paper-library {
-  max-width: 1600px;
-  margin: 0 auto;
+  width: 100%;
+  min-height: calc(100vh - 68px);
+  color: var(--text-primary);
 }
 
 .library-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 32px;
-  gap: 24px;
+  margin-bottom: 28px;
+  gap: 18px;
 }
 
 .header-section {
   flex: 1;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.library-header h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 34px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 15px;
 }
 
 .header-actions {
@@ -1069,6 +1264,54 @@ export default {
   color: var(--text-tertiary);
 }
 
+.paper-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.paper-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+
+.paper-status-badge.uploaded {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.paper-status-badge.indexing {
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, 0.28);
+}
+
+.paper-status-badge.indexed {
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.paper-status-badge.failed {
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.28);
+}
+
+.paper-status-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .paper-actions {
   display: flex;
   gap: 8px;
@@ -1097,6 +1340,12 @@ export default {
   border-color: var(--accent-success);
   color: var(--accent-success);
   box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+}
+
+.rename-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  box-shadow: var(--glow-primary);
 }
 
 .delete-btn:hover {
@@ -1190,6 +1439,38 @@ export default {
   font-size: 13px;
 }
 
+.rename-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rename-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.rename-input:focus {
+  border-color: var(--border-glow);
+  box-shadow: var(--glow-primary);
+}
+
+.rename-error {
+  margin-top: 10px;
+  color: var(--accent-danger);
+  font-size: 13px;
+}
+
 .modal-actions {
   display: flex;
   gap: 12px;
@@ -1199,7 +1480,8 @@ export default {
 }
 
 .btn-secondary,
-.btn-danger {
+.btn-danger,
+.btn-primary-action {
   padding: 10px 24px;
   border-radius: 8px;
   font-weight: 500;
@@ -1230,6 +1512,22 @@ export default {
 }
 
 .btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary-action {
+  background: var(--gradient-primary);
+  border: none;
+  color: white;
+}
+
+.btn-primary-action:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 0 30px rgba(102, 126, 234, 0.45);
+}
+
+.btn-primary-action:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -1713,4 +2011,3 @@ export default {
   }
 }
 </style>
-

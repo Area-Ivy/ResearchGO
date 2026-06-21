@@ -26,6 +26,38 @@ class MindmapService:
         except Exception as e:
             logger.warning(f"OpenAI service not available: {e}")
             self.openai_service = None
+
+    def _extract_json_payload(self, response: str) -> Dict[str, Any]:
+        """Extract the first valid JSON object from a model response."""
+        cleaned_response = response.strip()
+
+        if cleaned_response.startswith('```json'):
+            cleaned_response = cleaned_response[7:].lstrip('\n')
+        elif cleaned_response.startswith('```'):
+            cleaned_response = cleaned_response[3:].lstrip('\n')
+        if cleaned_response.endswith('```'):
+            cleaned_response = cleaned_response[:-3].rstrip('\n')
+
+        decoder = json.JSONDecoder()
+        candidate_starts = [
+            index for index, char in enumerate(cleaned_response)
+            if char in '{['
+        ]
+
+        parse_errors = []
+        for start in candidate_starts or [0]:
+            try:
+                parsed, _ = decoder.raw_decode(cleaned_response[start:])
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError as exc:
+                parse_errors.append(str(exc))
+
+        raise json.JSONDecodeError(
+            parse_errors[0] if parse_errors else "No valid JSON object found in AI response",
+            cleaned_response,
+            0
+        )
     
     async def extract_text_from_pdf(self, pdf_data: io.BytesIO) -> str:
         """从PDF中提取文本内容"""
@@ -131,18 +163,8 @@ Output JSON directly, without explanations or code block markers:"""
                 max_tokens=2000
             )
             
-            # 清理JSON代码块标记
-            cleaned_response = response.strip()
-            if cleaned_response.startswith('```json'):
-                cleaned_response = cleaned_response[7:].lstrip('\n')
-            elif cleaned_response.startswith('```'):
-                cleaned_response = cleaned_response[3:].lstrip('\n')
-            if cleaned_response.endswith('```'):
-                cleaned_response = cleaned_response[:-3].rstrip('\n')
-            
-            # 解析JSON
             try:
-                mindmap_json = json.loads(cleaned_response)
+                mindmap_json = self._extract_json_payload(response)
                 logger.info(f"JSON validation successful")
                 return mindmap_json
             except json.JSONDecodeError as e:

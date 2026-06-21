@@ -1,640 +1,828 @@
-"""
-LangGraph Agent Implementation
-
-集成三层记忆系统：
-1. 短期记忆: 滑动窗口 + Redis Checkpointer
-2. 长对话摘要: 自动摘要超长对话
-3. 语义记忆: 基于向量的跨会话记忆
-"""
+"""LangGraph agent implementation for ResearchGO."""
+import copy
 import json
 import logging
-from typing import Dict, Any, List, Optional, AsyncGenerator
-from datetime import datetime
+import re
+import uuid
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-from langgraph.graph import StateGraph, END
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langgraph.graph import END, StateGraph
 
-from ..models.state import AgentState, ToolCall, StreamEvent
-from ..tools.registry import tool_registry
 from ..config import (
-    OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE_URL, MAX_ITERATIONS,
-    SLIDING_WINDOW_SIZE, ENABLE_CONVERSATION_SUMMARY, ENABLE_SEMANTIC_MEMORY,
-    ENABLE_CHECKPOINTER
+    ENABLE_CHECKPOINTER,
+    ENABLE_CONVERSATION_SUMMARY,
+    ENABLE_SEMANTIC_MEMORY,
+    MAX_ITERATIONS,
+    OPENAI_API_KEY,
+    OPENAI_BASE_URL,
+    OPENAI_MODEL,
+    SLIDING_WINDOW_SIZE,
+    USE_MCP_TOOLS,
 )
-from ..memory.sliding_window import SmartSlidingWindow
+from ..mcp.client import get_mcp_client
 from ..memory.checkpointer import get_checkpointer
-from ..memory.summary import get_summary_manager
 from ..memory.semantic_memory import get_semantic_memory_service
-from ..utils.circuit_breaker import get_breaker_manager, TOOL_ALTERNATIVES
+from ..memory.sliding_window import SmartSlidingWindow
+from ..memory.summary import get_summary_manager
+from ..models.state import AgentState, StreamEvent, ToolCall
+from ..tools.registry import tool_registry
+from ..utils.circuit_breaker import TOOL_ALTERNATIVES, get_breaker_manager
 
 logger = logging.getLogger(__name__)
 
-# System prompt with memory context placeholder
-SYSTEM_PROMPT = """你是 ResearchGO 的 AI 研究助手，专门帮助用户进行学术研究。
+SYSTEM_PROMPT = """You are the ResearchGO AI research assistant.
+You can search literature, inspect user papers, run vector retrieval, analyze papers, build mindmaps, and compare papers.
+Use the available tools when they improve factual accuracy. Prefer attached conversation paper_id values for paper-specific operations.
+When a mindmap tool succeeds, do not fabricate or output image URLs, markdown image links, download links, placeholder links, or example visualization links. The UI renders the visual mindmap directly from tool data, so a brief confirmation is enough.
+When the user explicitly asks for a structured analysis, analysis report, paper analysis card, or a sectioned analysis of an attached paper, you must call analyze_paper for that paper instead of answering from general model knowledge or only using ask_about_paper.
+If exactly one paper is attached to the current conversation, treat ambiguous references such as "this paper", "the selected paper", "this article", or "this work" as referring to that attached paper by default.
+When the user asks for an introduction, summary, analysis, explanation, or question answering about the currently attached paper, do not ask the user to repeat the paper name or ID unless multiple attached papers create ambiguity.
+When exactly one paper is attached and the user says phrases like "这篇论文", "这篇文章", "该论文", or similar references, resolve that reference to the attached paper and use paper-specific tools with its paper_id instead of asking a clarifying question.
+For questions about a currently attached user paper, follow this policy strictly:
+1. If exactly one paper is attached, assume the request targets that paper unless the user clearly says otherwise.
+2. For grounded Q&A about the paper, call ask_about_paper with that paper_id.
+3. For requests such as introduce, summarize, explain, analyze, or review the paper, prefer ask_about_paper first for grounded retrieval, and use analyze_paper when a structured paper analysis is specifically useful.
+4. Do not answer from general model knowledge alone when a relevant attached paper tool can be used.
+5. Do not say you cannot identify or analyze the paper if a single attached paper_id is already available.
+6. Only ask a clarifying question when multiple attached papers create real ambiguity.
+When the user asks to search their personal paper library without giving a keyword, do not infer a topic from earlier turns.
+Instead, either list the user's papers with search_user_papers using an empty query, or ask a brief clarifying follow-up.
 
-你的能力：
-1. 搜索学术文献（OpenAlex 数据库，包含数亿篇论文）
-2. 管理用户的论文库（上传、搜索、查看）
-3. 语义搜索（基于内容的智能检索）
-4. 论文问答（基于论文内容回答问题）
-5. 论文分析（生成分析报告、思维导图）
-6. 论文对比（对比多篇论文的异同）
-
-工作原则：
-1. 优先理解用户意图，选择最合适的工具
-2. 如果需要多步操作，按顺序执行
-3. 工具返回结果后，用自然语言总结给用户
-4. **智能降级原则**（重要）：
-   - 如果工具调用失败或返回降级通知，**不要直接告诉用户"请稍后重试"**
-   - 首先查看降级通知中的替代方案建议
-   - 尝试使用替代工具完成用户需求
-   - 如果没有合适的替代工具，尝试基于你的知识直接回答
-   - 只有在完全无法帮助时，才告知用户并提供替代建议
-5. 回答要简洁清晰，重点突出
-
-你可以使用的工具：
+Available tools:
 {tool_descriptions}
 {memory_context}
 {degraded_tools_notice}
-记住：你是一个专业的研究助手，即使某些工具暂时不可用，也要想办法帮助用户完成任务。"""
-
-
-# 降级工具通知模板
-DEGRADED_TOOLS_NOTICE = """
-⚠️ **当前不可用的工具**：{tools}
-
-这些工具因为服务问题暂时熔断。当用户请求相关功能时：
-1. 优先使用替代工具
-2. 或基于你的知识回答
-3. 不要简单地说"请稍后重试"
 """
+
+DEGRADED_TOOLS_NOTICE = """
+Some local tools are currently degraded or unavailable:
+{tools}
+Prefer alternatives when possible and explain limitations briefly.
+"""
+
+ATTACHED_PAPER_REFERENCE_MARKERS = (
+    "这篇论文",
+    "这篇文章",
+    "该论文",
+    "该文章",
+    "这篇",
+    "selected paper",
+    "attached paper",
+    "current paper",
+    "this paper",
+    "this article",
+    "this work",
+)
+
+STRUCTURED_ANALYSIS_MARKERS = (
+    "结构化分析",
+    "分析报告",
+    "论文分析",
+    "详细分析",
+    "structured analysis",
+    "analysis report",
+    "paper analysis",
+)
+
+MINDMAP_ARTIFACT_PATTERN = re.compile(
+    r"\n?<!--RESEARCHGO_MINDMAP:(?P<payload>.+?)-->",
+    re.DOTALL,
+)
+ANALYSIS_ARTIFACT_PATTERN = re.compile(
+    r"\n?<!--RESEARCHGO_ANALYSIS:(?P<payload>.+?)-->",
+    re.DOTALL,
+)
+
+
+def _strip_placeholder_mindmap_links(text: str) -> str:
+    if not text:
+        return text
+    cleaned = text
+    patterns = (
+        r'!\[[^\]]*\]\(\s*https?:\/\/image\.pollinations\.ai\/prompt\/[^)\s]+(?:\s+"[^"]*")?\s*\)',
+        r'\(\s*https?:\/\/image\.pollinations\.ai\/prompt\/[^)\s]+\s*\)',
+        r'https?:\/\/image\.pollinations\.ai\/prompt\/\S+',
+    )
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
+def _strip_embedded_mindmap_artifacts(text: str) -> str:
+    if not text:
+        return text
+    cleaned = MINDMAP_ARTIFACT_PATTERN.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _strip_embedded_analysis_artifacts(text: str) -> str:
+    if not text:
+        return text
+    cleaned = ANALYSIS_ARTIFACT_PATTERN.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _should_bind_single_attached_paper(user_input: str, attached_papers: List[Dict[str, str]]) -> bool:
+    if len(attached_papers) != 1:
+        return False
+
+    lowered = (user_input or "").lower()
+    if not lowered.strip():
+        return False
+
+    return any(marker in user_input or marker in lowered for marker in ATTACHED_PAPER_REFERENCE_MARKERS)
+
+
+def _is_structured_analysis_request(user_input: str) -> bool:
+    lowered = (user_input or "").lower()
+    if not lowered.strip():
+        return False
+    return any(marker in user_input or marker in lowered for marker in STRUCTURED_ANALYSIS_MARKERS)
+
+
+def _augment_user_message_with_attached_paper(
+    user_input: str,
+    attached_paper: Dict[str, str],
+    require_structured_analysis: bool = False,
+) -> str:
+    paper_id = attached_paper.get("paper_id", "").strip()
+    paper_name = attached_paper.get("name", "").strip() or paper_id or "Unknown paper"
+    if not paper_id:
+        return user_input
+
+    suffix = (
+        f"{user_input}\n\n"
+        "[Attached paper resolution]\n"
+        "The user is referring to the currently attached paper.\n"
+        f"paper_id: {paper_id}\n"
+        f"paper_name: {paper_name}\n"
+        "Use this paper as the default target for paper-specific tools and grounded answers.\n"
+        "If the request is about introducing, summarizing, explaining, reviewing, or answering questions about the paper, do not ask for the paper name again.\n"
+        "Call ask_about_paper for grounded paper Q&A, or analyze_paper when a structured analysis is needed."
+    )
+    if require_structured_analysis:
+        suffix += (
+            "\nThe user is explicitly requesting a structured analysis/report for this attached paper.\n"
+            "You must call analyze_paper with this paper_id before giving the final answer.\n"
+            "Do not answer with a free-form summary alone."
+        )
+    return suffix
 
 
 class ResearchAgent:
-    """
-    ResearchGO Agent 基于 LangGraph
-    
-    集成三层记忆架构：
-    - 短期记忆: 滑动窗口限制上下文长度
-    - 长对话摘要: 超长对话自动生成摘要
-    - 语义记忆: 跨会话的用户画像和偏好
-    """
-    
     def __init__(self):
-        # 初始化 LLM（启用流式输出）
         llm_kwargs = {
             "model": OPENAI_MODEL,
             "temperature": 0.7,
             "api_key": OPENAI_API_KEY,
-            "streaming": True,  # 启用流式输出
+            "streaming": True,
         }
         if OPENAI_BASE_URL:
             llm_kwargs["base_url"] = OPENAI_BASE_URL
-        
+
         self.llm = ChatOpenAI(**llm_kwargs)
-        
-        # 绑定工具到 LLM
+        self.mcp_client = get_mcp_client()
         self.tools = tool_registry.get_openai_functions()
         self.llm_with_tools = self.llm.bind_tools(self.tools)
-        
-        # 初始化记忆组件
         self.sliding_window = SmartSlidingWindow(window_size=SLIDING_WINDOW_SIZE)
         self.checkpointer = get_checkpointer() if ENABLE_CHECKPOINTER else None
-        
-        # 构建图
         self.graph = self._build_graph()
-        
-        # 编译图（带/不带 checkpointer）
         if self.checkpointer:
             self.app = self.graph.compile(checkpointer=self.checkpointer)
             logger.info("Agent compiled with Redis Checkpointer")
         else:
             self.app = self.graph.compile()
             logger.info("Agent compiled without Checkpointer")
-    
+
     def _build_graph(self) -> StateGraph:
-        """构建 LangGraph 状态图"""
         graph = StateGraph(AgentState)
-        
-        # 添加节点
-        graph.add_node("reason", self._reason_node)
+        graph.add_node("prepare_context", self._prepare_context_node)
+        graph.add_node("refresh_capabilities", self._refresh_capabilities_node)
+        graph.add_node("plan", self._plan_node)
         graph.add_node("execute_tools", self._execute_tools_node)
-        graph.add_node("respond", self._respond_node)
-        
-        # 设置入口点
-        graph.set_entry_point("reason")
-        
-        # 添加条件边
+        graph.add_node("handle_tool_outcome", self._handle_tool_outcome_node)
+        graph.add_node("merge_tool_results", self._merge_tool_results_node)
+        graph.add_node("handle_degraded", self._handle_degraded_node)
+        graph.add_node("handle_error", self._handle_error_node)
+        graph.add_node("synthesize_answer", self._synthesize_answer_node)
+        graph.add_node("finalize", self._finalize_node)
+
+        graph.set_entry_point("prepare_context")
+        graph.add_edge("prepare_context", "refresh_capabilities")
+        graph.add_edge("refresh_capabilities", "plan")
         graph.add_conditional_edges(
-            "reason",
-            self._should_continue,
+            "plan",
+            self._route_after_plan,
             {
                 "execute_tools": "execute_tools",
-                "respond": "respond",
-                "end": END
-            }
+                "synthesize_answer": "synthesize_answer",
+                "finalize": "finalize",
+            },
         )
-        
-        # 工具执行后回到推理节点
-        graph.add_edge("execute_tools", "reason")
-        
-        # 响应节点结束
-        graph.add_edge("respond", END)
-        
+        graph.add_edge("execute_tools", "handle_tool_outcome")
+        graph.add_conditional_edges(
+            "handle_tool_outcome",
+            self._route_tool_outcome,
+            {
+                "merge_tool_results": "merge_tool_results",
+                "handle_degraded": "handle_degraded",
+                "handle_error": "handle_error",
+            },
+        )
+        graph.add_edge("merge_tool_results", "plan")
+        graph.add_edge("handle_degraded", "plan")
+        graph.add_edge("handle_error", "plan")
+        graph.add_edge("synthesize_answer", "finalize")
+        graph.add_edge("finalize", END)
         return graph
-    
+
+    async def refresh_tools(self, force: bool = False):
+        if not USE_MCP_TOOLS:
+            return
+        remote_tools = await self.mcp_client.list_tools(refresh=force)
+        if remote_tools:
+            tool_registry.set_remote_tools(remote_tools)
+            self.tools = tool_registry.get_openai_functions()
+            self.llm_with_tools = self.llm.bind_tools(self.tools)
+
     async def _prepare_context(
         self,
         messages: List[Dict[str, Any]],
         user_id: Optional[str],
         user_input: str,
         conversation_id: Optional[str],
-        token: Optional[str]
-    ) -> tuple[List[Dict[str, Any]], str, str]:
-        """
-        准备上下文：应用三层记忆系统
-        
-        Returns:
-            (处理后的消息, 对话摘要, 用户记忆上下文)
-        """
+        token: Optional[str],
+        attached_papers: Optional[List[Dict[str, str]]] = None,
+    ) -> Tuple[List[Dict[str, Any]], str, str]:
         summary = ""
         memory_context = ""
-        processed_messages = messages
-        
-        # 1. 长对话摘要
+        processed_messages = copy.deepcopy(messages)
+        for msg in processed_messages:
+            if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                msg["content"] = _strip_embedded_mindmap_artifacts(msg["content"])
+
         if ENABLE_CONVERSATION_SUMMARY and conversation_id:
             try:
                 summary_manager = get_summary_manager()
                 summary_result = await summary_manager.process(
                     messages=messages,
                     conversation_id=conversation_id,
-                    window_size=SLIDING_WINDOW_SIZE
+                    window_size=SLIDING_WINDOW_SIZE,
                 )
-                
                 if summary_result.summary:
                     summary = summary_result.summary
                     processed_messages = summary_result.window_messages
-                    logger.info(
-                        f"Applied summary: {summary_result.original_count} -> "
-                        f"{len(processed_messages)} messages (summarized: {summary_result.summarized_count})"
-                    )
-            except Exception as e:
-                logger.warning(f"Summary processing failed: {e}")
-        
-        # 2. 滑动窗口（在摘要之后应用，进一步控制 Token）
-        processed_messages, window_stats = self.sliding_window.apply(
-            processed_messages,
-            strategy="hybrid"
-        )
-        
+            except Exception as exc:
+                logger.warning("Summary processing failed: %s", exc)
+
+        processed_messages, window_stats = self.sliding_window.apply(processed_messages, strategy="hybrid")
         if window_stats.messages_dropped > 0:
-            logger.info(f"Sliding window dropped {window_stats.messages_dropped} messages")
-        
-        # 3. 语义记忆（获取用户相关上下文）
+            logger.info("Sliding window dropped %s messages", window_stats.messages_dropped)
+
         if ENABLE_SEMANTIC_MEMORY and user_id and token:
             try:
                 semantic_memory = get_semantic_memory_service()
                 memory_context = await semantic_memory.get_user_context(
                     user_id=user_id,
                     current_query=user_input,
-                    token=token
+                    token=token,
                 )
-                
-                if memory_context:
-                    logger.info(f"Retrieved semantic memory context for user {user_id}")
-            except Exception as e:
-                logger.warning(f"Semantic memory retrieval failed: {e}")
-        
-        return processed_messages, summary, memory_context
-    
-    async def _reason_node(self, state: AgentState) -> Dict[str, Any]:
-        """推理节点：分析用户意图，决定是否调用工具"""
-        logger.info(f"Reason node - iteration: {state.get('iteration', 0)}")
-        
-        # 获取状态信息
-        raw_messages = state.get("messages", [])
-        user_id = state.get("user_id")
-        user_input = state.get("user_input", "")
-        conversation_id = state.get("conversation_id")
-        token = state.get("token")
-        
-        logger.debug(f"Reason node: user_input='{user_input[:50] if user_input else ''}...', messages={len(raw_messages)}")
-        
-        # 应用三层记忆系统
-        processed_messages, summary, memory_context = await self._prepare_context(
-            messages=raw_messages,
-            user_id=user_id,
-            user_input=user_input,
-            conversation_id=conversation_id,
-            token=token
-        )
-        
-        # 构建 memory context 部分
-        memory_section = ""
-        if summary or memory_context:
-            memory_section = "\n\n--- 上下文信息 ---"
-            if summary:
-                memory_section += f"\n[对话摘要]: {summary}"
-            if memory_context:
-                memory_section += f"\n[用户背景]:\n{memory_context}"
-            memory_section += "\n--- 上下文结束 ---\n"
-        
-        # 获取当前被熔断的工具
-        degraded_tools_notice = ""
-        breaker_manager = get_breaker_manager()
-        degraded_tools = breaker_manager.get_degraded_tools()
-        if degraded_tools:
-            # 构建详细的降级工具通知，包含替代方案
-            degraded_info_list = []
-            for tool_name in degraded_tools:
-                alt_info = TOOL_ALTERNATIVES.get(tool_name, {})
-                alternatives = alt_info.get("alternatives", [])
-                hint = alt_info.get("hint", "")
-                if alternatives:
-                    degraded_info_list.append(f"- {tool_name} → 替代方案: {', '.join(alternatives)}")
-                else:
-                    degraded_info_list.append(f"- {tool_name} → 无替代工具，需直接回答")
-            
-            degraded_tools_notice = DEGRADED_TOOLS_NOTICE.format(
-                tools="\n".join(degraded_info_list)
-            )
-            logger.warning(f"当前被熔断的工具: {degraded_tools}")
-        
-        # 构建消息列表
-        messages = [
-            SystemMessage(content=SYSTEM_PROMPT.format(
-                tool_descriptions=tool_registry.get_tool_descriptions(),
-                memory_context=memory_section,
-                degraded_tools_notice=degraded_tools_notice
-            ))
-        ]
-        
-        # 添加处理后的历史消息
-        for msg in processed_messages:
-            if msg["role"] == "user":
-                messages.append(HumanMessage(content=msg["content"]))
-            elif msg["role"] == "assistant":
-                # 检查是否有 tool_calls
-                if msg.get("tool_calls"):
-                    # 创建带有 tool_calls 的 AIMessage
-                    ai_msg = AIMessage(
-                        content=msg.get("content", ""),
-                        tool_calls=msg["tool_calls"]
+            except Exception as exc:
+                logger.warning("Semantic memory retrieval failed: %s", exc)
+
+        attached_papers = attached_papers or []
+        if attached_papers:
+            paper_lines = []
+            for paper in attached_papers:
+                paper_id = paper.get("paper_id")
+                paper_name = paper.get("name", paper_id)
+                if paper_id:
+                    paper_lines.append(f"- {paper_name} (paper_id: {paper_id})")
+            if paper_lines:
+                single_paper_hint = ""
+                if len(paper_lines) == 1:
+                    single_paper_hint = (
+                        "\nThere is exactly one attached paper. Resolve phrases like "
+                        "'this paper', 'this article', 'the selected paper', and similar "
+                        "references to that paper by default."
                     )
-                    messages.append(ai_msg)
+                suffix = "\n".join(paper_lines)
+                memory_context = (
+                    f"{memory_context}\n\n[Current conversation papers]\n"
+                    "Prefer these paper_id values when using paper-related tools."
+                    f"{single_paper_hint}\n"
+                    f"{suffix}"
+                ).strip()
+
+        if _should_bind_single_attached_paper(user_input, attached_papers):
+            attached_paper = attached_papers[0]
+            resolved_user_input = _augment_user_message_with_attached_paper(user_input, attached_paper)
+            if processed_messages and processed_messages[-1].get("role") == "user":
+                processed_messages[-1]["content"] = resolved_user_input
+            paper_id = attached_paper.get("paper_id")
+            paper_name = attached_paper.get("name", paper_id)
+            memory_context = (
+                f"{memory_context}\n\n[Current request target paper]\n"
+                "Resolve the user's paper reference to the attached paper below.\n"
+                f"- {paper_name} (paper_id: {paper_id})"
+            ).strip()
+
+        return processed_messages, summary, memory_context
+
+    def _build_memory_section(self, summary: str, memory_context: str) -> str:
+        if not summary and not memory_context:
+            return ""
+
+        parts = []
+        if summary:
+            parts.append(f"[Conversation summary]\n{summary}")
+        if memory_context:
+            parts.append(f"[Relevant memory]\n{memory_context}")
+        return "\n\n" + "\n\n".join(parts)
+
+    def _build_degraded_tools_notice(self) -> str:
+        if USE_MCP_TOOLS:
+            return ""
+
+        degraded_tools = get_breaker_manager().get_degraded_tools()
+        if not degraded_tools:
+            return ""
+
+        degraded_info = []
+        for tool_name in degraded_tools:
+            alt_info = TOOL_ALTERNATIVES.get(tool_name, {})
+            alternatives = alt_info.get("alternatives", [])
+            if alternatives:
+                degraded_info.append(f"- {tool_name}: alternatives -> {', '.join(alternatives)}")
+            else:
+                degraded_info.append(f"- {tool_name}: no alternatives registered")
+        return DEGRADED_TOOLS_NOTICE.format(tools="\n".join(degraded_info))
+
+    def _build_llm_messages(self, processed_messages: List[Dict[str, Any]], summary: str, memory_context: str):
+        messages = [
+            SystemMessage(
+                content=SYSTEM_PROMPT.format(
+                    tool_descriptions=tool_registry.get_tool_descriptions(),
+                    memory_context=self._build_memory_section(summary, memory_context),
+                    degraded_tools_notice=self._build_degraded_tools_notice(),
+                )
+            )
+        ]
+
+        for msg in processed_messages:
+            role = msg["role"]
+            if role == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            elif role == "assistant":
+                if msg.get("tool_calls"):
+                    messages.append(AIMessage(content=msg.get("content", ""), tool_calls=msg["tool_calls"]))
                 else:
                     messages.append(AIMessage(content=msg.get("content", "")))
-            elif msg["role"] == "tool":
-                messages.append(ToolMessage(
-                    content=msg["content"],
-                    tool_call_id=msg.get("tool_call_id", "")
-                ))
-        
-        logger.debug(f"Calling LLM with {len(messages)} messages")
-        
-        # 调用 LLM
+            elif role == "tool":
+                messages.append(ToolMessage(content=msg["content"], tool_call_id=msg.get("tool_call_id", "")))
+
+        return messages
+
+    async def _prepare_context_node(self, state: AgentState) -> Dict[str, Any]:
+        logger.info("Prepare context node")
+        processed_messages, summary, memory_context = await self._prepare_context(
+            messages=state.get("messages", []),
+            user_id=state.get("user_id"),
+            user_input=state.get("user_input", ""),
+            conversation_id=state.get("conversation_id"),
+            token=state.get("token"),
+            attached_papers=state.get("attached_papers", []),
+        )
+        return {
+            "prepared_messages": processed_messages,
+            "summary": summary,
+            "memory_context": memory_context,
+            "draft_answer": None,
+            "tool_outcome": None,
+        }
+
+    async def _refresh_capabilities_node(self, state: AgentState) -> Dict[str, Any]:
+        logger.info("Refresh capabilities node")
+        await self.refresh_tools()
+        return {}
+
+    async def _plan_node(self, state: AgentState) -> Dict[str, Any]:
+        logger.info("Plan node - iteration: %s", state.get("iteration", 0))
+        prepared_messages = state.get("prepared_messages") or state.get("messages", [])
+        messages = self._build_llm_messages(
+            prepared_messages,
+            state.get("summary", "") or "",
+            state.get("memory_context", "") or "",
+        )
         response = await self.llm_with_tools.ainvoke(messages)
-        
-        # 处理响应
-        tool_calls = []
         thoughts = state.get("thoughts", [])
-        
+        tool_calls: List[ToolCall] = []
+        assistant_message = {
+            "role": "assistant",
+            "content": response.content or "",
+        }
+
         if response.tool_calls:
-            # LLM 决定调用工具
-            for tc in response.tool_calls:
-                tool_calls.append(ToolCall(
-                    id=tc["id"],
-                    name=tc["name"],
-                    arguments=tc["args"]
-                ))
-                thoughts.append(f"🔧 准备调用工具: {tc['name']}")
-            
+            assistant_message["tool_calls"] = response.tool_calls
+            for tool_call in response.tool_calls:
+                tool_calls.append(ToolCall(id=tool_call["id"], name=tool_call["name"], arguments=tool_call["args"]))
+                thoughts.append(f"Planning tool call: {tool_call['name']}")
             return {
-                "messages": [{"role": "assistant", "content": response.content or "", "tool_calls": response.tool_calls}],
+                "messages": [assistant_message],
+                "prepared_messages": prepared_messages + [assistant_message],
                 "tool_calls": tool_calls,
                 "thoughts": thoughts,
                 "should_continue": True,
-                "iteration": state.get("iteration", 0) + 1
+                "draft_answer": None,
+                "final_answer": None,
+                "iteration": state.get("iteration", 0) + 1,
             }
-        else:
-            # LLM 直接回答
-            return {
-                "messages": [{"role": "assistant", "content": response.content}],
-                "final_answer": response.content,
-                "should_continue": False,
-                "iteration": state.get("iteration", 0) + 1
-            }
-    
+
+        thoughts.append("Planning complete: enough context to answer")
+        return {
+            "messages": [assistant_message],
+            "prepared_messages": prepared_messages + [assistant_message],
+            "tool_calls": [],
+            "thoughts": thoughts,
+            "should_continue": False,
+            "draft_answer": response.content,
+            "iteration": state.get("iteration", 0) + 1,
+        }
+
     async def _execute_tools_node(self, state: AgentState) -> Dict[str, Any]:
-        """工具执行节点"""
         logger.info("Execute tools node")
-        
         tool_calls = state.get("tool_calls", [])
         thoughts = state.get("thoughts", [])
+        prepared_messages = state.get("prepared_messages") or state.get("messages", [])
         new_messages = []
-        
-        for tc in tool_calls:
-            tool = tool_registry.get(tc.name)
+        outcome = "success"
+
+        for tool_call in tool_calls:
+            thoughts.append(f"Executing tool: {tool_call.name}")
+            arguments = tool_call.arguments.copy()
+
+            if USE_MCP_TOOLS:
+                try:
+                    result_payload = await self.mcp_client.call_tool(tool_call.name, arguments, token=state.get("token"))
+                    structured = result_payload.get("structuredContent", {})
+                    if result_payload.get("isError"):
+                        if structured.get("status") == "degraded":
+                            outcome = "degraded"
+                            thoughts.append(f"Tool degraded: {tool_call.name}")
+                        else:
+                            outcome = "error"
+                            thoughts.append(f"Tool failed: {tool_call.name}: {structured.get('error', 'unknown error')}")
+                        new_messages.append({
+                            "role": "tool",
+                            "content": json.dumps(structured, ensure_ascii=False),
+                            "tool_call_id": tool_call.id,
+                        })
+                        tool_call.error = structured.get("error")
+                    else:
+                        thoughts.append(f"Tool succeeded: {tool_call.name}")
+                        new_messages.append({
+                            "role": "tool",
+                            "content": json.dumps(structured, ensure_ascii=False),
+                            "tool_call_id": tool_call.id,
+                        })
+                        tool_call.result = structured
+                    continue
+                except Exception as exc:
+                    outcome = "error"
+                    thoughts.append(f"MCP tool failed: {tool_call.name}: {exc}")
+                    new_messages.append({
+                        "role": "tool",
+                        "content": json.dumps({"error": str(exc)}, ensure_ascii=False),
+                        "tool_call_id": tool_call.id,
+                    })
+                    tool_call.error = str(exc)
+                    continue
+
+            tool = tool_registry.get(tool_call.name)
             if not tool:
-                error_msg = f"工具 {tc.name} 不存在"
-                thoughts.append(f"❌ {error_msg}")
-                new_messages.append({
-                    "role": "tool",
-                    "content": json.dumps({"error": error_msg}),
-                    "tool_call_id": tc.id
-                })
+                outcome = "error"
+                error = f"Unknown tool: {tool_call.name}"
+                thoughts.append(error)
+                new_messages.append({"role": "tool", "content": json.dumps({"error": error}), "tool_call_id": tool_call.id})
+                tool_call.error = error
                 continue
-            
-            # 执行工具
-            thoughts.append(f"⚙️ 正在执行: {tc.name}")
-            
-            # 添加 token（如果状态中有的话）
-            kwargs = tc.arguments.copy()
+
             if state.get("token"):
-                kwargs["token"] = state["token"]
-            
-            result = await tool(**kwargs)
-            
+                arguments["token"] = state["token"]
+            result = await tool(**arguments)
+            tool_call.duration_ms = result.duration_ms
+
             if result.success:
-                thoughts.append(f"✅ {tc.name} 执行成功")
+                thoughts.append(f"Tool succeeded: {tool_call.name}")
                 new_messages.append({
                     "role": "tool",
                     "content": json.dumps(result.data, ensure_ascii=False),
-                    "tool_call_id": tc.id
+                    "tool_call_id": tool_call.id,
                 })
+                tool_call.result = result.data
             elif result.is_degraded:
-                # 智能降级响应：工具被熔断
-                thoughts.append(f"⚠️ {tc.name} 服务熔断，需要智能降级")
-                
-                # 获取替代方案信息
-                alt_info = TOOL_ALTERNATIVES.get(tc.name, {})
-                alternatives = alt_info.get("alternatives", [])
-                hint = alt_info.get("hint", "")
-                
-                # 构建给 LLM 的降级指导
+                outcome = "degraded"
+                alt_info = TOOL_ALTERNATIVES.get(tool_call.name, {})
                 degraded_guidance = {
                     "status": "degraded",
-                    "tool": tc.name,
-                    "message": "该工具暂时不可用，请采取智能降级策略",
-                    "alternatives": alternatives,
-                    "hint": hint,
-                    "instruction": "请根据以上替代方案尝试其他方法帮助用户，不要直接告诉用户'请稍后重试'"
+                    "tool": tool_call.name,
+                    "message": result.error,
+                    "alternatives": alt_info.get("alternatives", []),
+                    "hint": alt_info.get("hint", ""),
                 }
-                
+                thoughts.append(f"Tool degraded: {tool_call.name}")
                 new_messages.append({
                     "role": "tool",
                     "content": json.dumps(degraded_guidance, ensure_ascii=False),
-                    "tool_call_id": tc.id
+                    "tool_call_id": tool_call.id,
                 })
-                
-                logger.warning(f"工具 {tc.name} 返回降级响应，替代方案: {alternatives}")
+                tool_call.error = result.error
             else:
-                thoughts.append(f"❌ {tc.name} 执行失败: {result.error}")
+                outcome = "error"
+                thoughts.append(f"Tool failed: {tool_call.name}: {result.error}")
                 new_messages.append({
                     "role": "tool",
-                    "content": json.dumps({"error": result.error}),
-                    "tool_call_id": tc.id
+                    "content": json.dumps({"error": result.error}, ensure_ascii=False),
+                    "tool_call_id": tool_call.id,
                 })
-            
-            # 更新工具调用结果
-            tc.result = result.data if result.success else None
-            tc.error = result.error if not result.success else None
-            tc.duration_ms = result.duration_ms
-        
+                tool_call.error = result.error
+
         return {
             "messages": new_messages,
+            "prepared_messages": prepared_messages + new_messages,
             "thoughts": thoughts,
-            "tool_calls": []  # 清空已执行的工具调用
+            "tool_outcome": outcome,
         }
-    
-    async def _respond_node(self, state: AgentState) -> Dict[str, Any]:
-        """响应节点：生成最终回答"""
-        logger.info("Respond node")
+
+    async def _handle_tool_outcome_node(self, state: AgentState) -> Dict[str, Any]:
+        logger.info("Handle tool outcome node: %s", state.get("tool_outcome"))
+        return {}
+
+    async def _merge_tool_results_node(self, state: AgentState) -> Dict[str, Any]:
+        thoughts = state.get("thoughts", [])
+        thoughts.append("Merged tool results into the next planning cycle")
         return {
-            "final_answer": state.get("final_answer", "抱歉，我无法处理您的请求。")
+            "tool_calls": [],
+            "should_continue": True,
+            "draft_answer": None,
+            "tool_outcome": None,
+            "thoughts": thoughts,
         }
-    
-    def _should_continue(self, state: AgentState) -> str:
-        """决定下一步走向"""
+
+    async def _handle_degraded_node(self, state: AgentState) -> Dict[str, Any]:
+        thoughts = state.get("thoughts", [])
+        thoughts.append("Tool degradation detected; replanning with alternatives")
+        return {
+            "tool_calls": [],
+            "should_continue": True,
+            "draft_answer": None,
+            "tool_outcome": None,
+            "thoughts": thoughts,
+        }
+
+    async def _handle_error_node(self, state: AgentState) -> Dict[str, Any]:
+        thoughts = state.get("thoughts", [])
+        thoughts.append("Tool execution error detected; replanning with the latest failure context")
+        return {
+            "tool_calls": [],
+            "should_continue": True,
+            "draft_answer": None,
+            "tool_outcome": None,
+            "thoughts": thoughts,
+        }
+
+    async def _synthesize_answer_node(self, state: AgentState) -> Dict[str, Any]:
+        logger.info("Synthesize answer node")
+        draft_answer = state.get("draft_answer") or state.get("final_answer")
+        if draft_answer:
+            return {"final_answer": draft_answer}
+        return {"final_answer": "I could not produce a final answer."}
+
+    async def _finalize_node(self, state: AgentState) -> Dict[str, Any]:
+        logger.info("Finalize node")
+        return {"final_answer": state.get("final_answer", "I could not produce a final answer.")}
+
+    def _route_after_plan(self, state: AgentState) -> str:
         iteration = state.get("iteration", 0)
-        
-        # 检查迭代次数限制
         if iteration >= MAX_ITERATIONS:
-            logger.warning(f"Max iterations ({MAX_ITERATIONS}) reached")
-            return "respond"
-        
-        # 检查是否有工具需要执行
+            logger.warning("Max iterations (%s) reached", MAX_ITERATIONS)
+            return "finalize"
         if state.get("tool_calls"):
             return "execute_tools"
-        
-        # 检查是否应该继续
-        if state.get("should_continue", False):
-            return "execute_tools"
-        
-        # 有最终答案则结束
-        if state.get("final_answer"):
-            return "end"
-        
-        return "respond"
-    
-    async def _post_process_memories(
-        self,
-        messages: List[Dict[str, Any]],
-        user_id: Optional[str],
-        token: Optional[str]
-    ):
-        """
-        后处理：从对话中提取并存储语义记忆
-        
-        在对话结束后异步执行，不阻塞响应
-        """
+        if state.get("draft_answer"):
+            return "synthesize_answer"
+        return "finalize"
+
+    def _route_tool_outcome(self, state: AgentState) -> str:
+        outcome = state.get("tool_outcome")
+        if outcome == "degraded":
+            return "handle_degraded"
+        if outcome == "error":
+            return "handle_error"
+        return "merge_tool_results"
+
+    async def _post_process_memories(self, messages: List[Dict[str, Any]], user_id: Optional[str], token: Optional[str]):
         if not ENABLE_SEMANTIC_MEMORY or not user_id or not token:
             return
-        
         try:
             semantic_memory = get_semantic_memory_service()
-            stored_count = await semantic_memory.process_and_store(
-                messages=messages,
-                user_id=user_id,
-                token=token
-            )
-            
+            stored_count = await semantic_memory.process_and_store(messages=messages, user_id=user_id, token=token)
             if stored_count > 0:
-                logger.info(f"Post-process: stored {stored_count} memories for user {user_id}")
-        except Exception as e:
-            logger.warning(f"Post-process memory storage failed: {e}")
-    
+                logger.info("Post-process stored %s memories for user %s", stored_count, user_id)
+        except Exception as exc:
+            logger.warning("Post-process memory storage failed: %s", exc)
+
+    def _build_initial_state(
+        self,
+        user_input: str,
+        user_id: Optional[str],
+        token: Optional[str],
+        conversation_history: Optional[List[dict]],
+        conversation_id: Optional[str],
+        attached_papers: Optional[List[Dict[str, str]]],
+    ) -> Dict[str, Any]:
+        initial_state = {
+            "messages": conversation_history or [],
+            "user_input": user_input,
+            "user_id": user_id,
+            "token": token,
+            "conversation_id": conversation_id,
+            "attached_papers": attached_papers or [],
+            "tool_calls": [],
+            "iteration": 0,
+            "should_continue": True,
+            "final_answer": None,
+            "draft_answer": None,
+            "error": None,
+            "thoughts": [],
+            "prepared_messages": [],
+            "summary": None,
+            "memory_context": None,
+            "tool_outcome": None,
+        }
+        initial_state["messages"].append({"role": "user", "content": user_input})
+        return initial_state
+
+    def _build_runtime_config(self, conversation_id: Optional[str]) -> Dict[str, Any]:
+        if not self.checkpointer:
+            return {}
+
+        conversation_part = conversation_id or "no-conversation"
+        request_part = uuid.uuid4().hex
+        return {"configurable": {"thread_id": f"conv_{conversation_part}_req_{request_part}"}}
+
     async def run(
         self,
         user_input: str,
         user_id: Optional[str] = None,
         token: Optional[str] = None,
         conversation_history: Optional[List[dict]] = None,
-        conversation_id: Optional[str] = None
+        conversation_id: Optional[str] = None,
+        attached_papers: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
-        """运行 Agent（非流式）"""
-        initial_state = {
-            "messages": conversation_history or [],
-            "user_input": user_input,
-            "user_id": user_id,
-            "token": token,
-            "conversation_id": conversation_id,
-            "tool_calls": [],
-            "iteration": 0,
-            "should_continue": True,
-            "final_answer": None,
-            "error": None,
-            "thoughts": []
-        }
-        
-        # 添加用户消息
-        initial_state["messages"].append({"role": "user", "content": user_input})
-        
-        # 构建配置（用于 checkpointer）
-        config = {}
-        if self.checkpointer and conversation_id:
-            config = {"configurable": {"thread_id": f"conv_{conversation_id}"}}
-        
-        # 运行图
-        final_state = await self.app.ainvoke(initial_state, config=config)
-        
-        # 后处理：提取语义记忆（异步，不阻塞）
-        await self._post_process_memories(
-            messages=final_state.get("messages", []),
+        initial_state = self._build_initial_state(
+            user_input=user_input,
             user_id=user_id,
-            token=token
+            token=token,
+            conversation_history=conversation_history,
+            conversation_id=conversation_id,
+            attached_papers=attached_papers,
         )
-        
+
+        # Conversation history is already reconstructed from the conversation service/cache.
+        # Use a request-scoped thread_id so the checkpointer API contract is satisfied
+        # without rehydrating stale internal graph state across turns.
+        config = self._build_runtime_config(conversation_id)
+        final_state = await self.app.ainvoke(initial_state, config=config)
+        await self._post_process_memories(final_state.get("messages", []), user_id=user_id, token=token)
         return {
-            "answer": final_state.get("final_answer", ""),
+            "answer": _strip_placeholder_mindmap_links(
+                _strip_embedded_mindmap_artifacts(final_state.get("final_answer", ""))
+            ),
             "thoughts": final_state.get("thoughts", []),
-            "tool_calls": final_state.get("tool_calls", [])
+            "tool_calls": final_state.get("tool_calls", []),
         }
-    
+
     async def run_stream(
         self,
         user_input: str,
         user_id: Optional[str] = None,
         token: Optional[str] = None,
         conversation_history: Optional[List[dict]] = None,
-        conversation_id: Optional[str] = None
+        conversation_id: Optional[str] = None,
+        attached_papers: Optional[List[Dict[str, str]]] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
-        """运行 Agent（流式）"""
-        initial_state = {
-            "messages": conversation_history or [],
-            "user_input": user_input,
-            "user_id": user_id,
-            "token": token,
-            "conversation_id": conversation_id,
-            "tool_calls": [],
-            "iteration": 0,
-            "should_continue": True,
-            "final_answer": None,
-            "error": None,
-            "thoughts": []
-        }
-        
-        # 添加用户消息
-        initial_state["messages"].append({"role": "user", "content": user_input})
-        
-        # 构建配置（用于 checkpointer）
-        config = {}
-        if self.checkpointer and conversation_id:
-            config = {"configurable": {"thread_id": f"conv_{conversation_id}"}}
-        
-        # 流式运行 - 使用 astream_events 获取 token 级别流式输出
+        initial_state = self._build_initial_state(
+            user_input=user_input,
+            user_id=user_id,
+            token=token,
+            conversation_history=conversation_history,
+            conversation_id=conversation_id,
+            attached_papers=attached_papers,
+        )
+
+        # Keep each request isolated from prior LangGraph checkpoints while still
+        # providing the checkpointer-required configurable thread_id.
+        config = self._build_runtime_config(conversation_id)
         last_thoughts_count = 0
-        final_messages = []
-        final_answer_chunks = []
-        
+        final_messages: List[Dict[str, Any]] = []
+        final_answer_chunks: List[str] = []
+        emitted_tool_message_ids = set()
+        tracked_nodes = {
+            "prepare_context",
+            "refresh_capabilities",
+            "plan",
+            "execute_tools",
+            "handle_tool_outcome",
+            "merge_tool_results",
+            "handle_degraded",
+            "handle_error",
+            "synthesize_answer",
+            "finalize",
+        }
+
         async for event in self.app.astream_events(initial_state, config=config, version="v2"):
             event_type = event.get("event")
-            
-            # LLM token 流式输出
             if event_type == "on_chat_model_stream":
                 chunk = event.get("data", {}).get("chunk")
-                if chunk and hasattr(chunk, "content") and chunk.content:
+                if chunk and getattr(chunk, "content", None):
                     final_answer_chunks.append(chunk.content)
                     yield StreamEvent(event="token", data=chunk.content)
-            
-            # 节点开始
             elif event_type == "on_chain_start":
                 node_name = event.get("name", "")
-                if node_name in ["reason", "execute_tools", "respond"]:
+                if node_name in tracked_nodes:
                     yield StreamEvent(event="node_start", data=node_name)
-            
-            # 节点结束
             elif event_type == "on_chain_end":
-                node_name = event.get("name", "")
                 output = event.get("data", {}).get("output", {})
-                
                 if isinstance(output, dict):
-                    # 收集消息用于后处理
                     if output.get("messages"):
                         final_messages.extend(output["messages"])
-                    
-                    # 发送思考过程
                     thoughts = output.get("thoughts", [])
                     if len(thoughts) > last_thoughts_count:
                         for thought in thoughts[last_thoughts_count:]:
                             yield StreamEvent(event="thinking", data=thought)
                         last_thoughts_count = len(thoughts)
-                    
-                    # 发送工具调用信息
                     if output.get("tool_calls"):
-                        for tc in output["tool_calls"]:
-                            yield StreamEvent(
-                                event="tool_call",
-                                data={
-                                    "name": tc.name,
-                                    "arguments": tc.arguments
-                                }
-                            )
-                    
-                    # 发送工具执行结果
-                    messages = output.get("messages", [])
-                    for msg in messages:
+                        for tool_call in output["tool_calls"]:
+                            yield StreamEvent(event="tool_call", data={"name": tool_call.name, "arguments": tool_call.arguments})
+                    for msg in output.get("messages", []):
                         if msg.get("role") == "tool":
                             try:
+                                tool_message_id = msg.get("tool_call_id")
+                                if tool_message_id and tool_message_id in emitted_tool_message_ids:
+                                    continue
                                 tool_data = json.loads(msg.get("content", "{}"))
                                 if tool_data.get("results") and isinstance(tool_data["results"], list):
                                     if tool_data["results"] and "title" in tool_data["results"][0]:
-                                        yield StreamEvent(
-                                            event="papers",
-                                            data={
-                                                "query": tool_data.get("query", ""),
-                                                "total": tool_data.get("total_count", len(tool_data["results"])),
-                                                "papers": tool_data["results"]
-                                            }
-                                        )
-                            except:
+                                        if tool_message_id:
+                                            emitted_tool_message_ids.add(tool_message_id)
+                                        yield StreamEvent(event="papers", data={
+                                            "query": tool_data.get("query", ""),
+                                            "total": tool_data.get("total_count", len(tool_data["results"])),
+                                            "papers": tool_data["results"],
+                                        })
+                                elif tool_data.get("mindmap_data"):
+                                    if tool_message_id:
+                                        emitted_tool_message_ids.add(tool_message_id)
+                                    yield StreamEvent(event="mindmap", data={
+                                        "paper_id": tool_data.get("paper_id"),
+                                        "mindmap_data": tool_data.get("mindmap_data"),
+                                        "message": tool_data.get("message", "Mindmap generated successfully."),
+                                    })
+                                elif tool_data.get("analysis"):
+                                    if tool_message_id:
+                                        emitted_tool_message_ids.add(tool_message_id)
+                                    yield StreamEvent(event="analysis", data={
+                                        "paper_id": tool_data.get("paper_id"),
+                                        "analysis": tool_data.get("analysis"),
+                                        "message": tool_data.get("message", "Analysis generated successfully."),
+                                    })
+                            except Exception:
                                 pass
-                    
-                    # 发送最终答案完成信号
                     if output.get("final_answer"):
-                        # 如果之前没有流式输出 token，发送完整答案
                         if not final_answer_chunks:
-                            yield StreamEvent(event="answer", data=output["final_answer"])
+                            yield StreamEvent(
+                                event="answer",
+                                data=_strip_placeholder_mindmap_links(
+                                    _strip_embedded_analysis_artifacts(
+                                        _strip_embedded_mindmap_artifacts(output["final_answer"])
+                                    )
+                                ),
+                            )
                         else:
                             yield StreamEvent(event="answer_end", data=None)
-        
-        # 后处理：提取语义记忆
-        await self._post_process_memories(
-            messages=initial_state["messages"] + final_messages,
-            user_id=user_id,
-            token=token
-        )
-        
+
+        await self._post_process_memories(initial_state["messages"] + final_messages, user_id=user_id, token=token)
         yield StreamEvent(event="done", data=None)
 
 
-# 全局 Agent 实例
 _agent_instance: Optional[ResearchAgent] = None
 
 
 def get_agent() -> ResearchAgent:
-    """获取 Agent 单例"""
     global _agent_instance
     if _agent_instance is None:
         _agent_instance = ResearchAgent()

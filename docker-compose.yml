@@ -220,12 +220,15 @@ services:
       - VECTOR_SEARCH_SERVICE_URL=http://vector-search-service:8004
       - LITERATURE_SERVICE_URL=http://literature-search-service:8005
       - ANALYSIS_SERVICE_URL=http://analysis-service:8008
+      - MCP_SERVER_URL=http://research-mcp-server:8010
+      - USE_MCP_TOOLS=true
       # Redis for memory system
       - REDIS_URL=redis://redis:6379/0
       # Memory system configuration
       - ENABLE_CHECKPOINTER=true
       - ENABLE_CONVERSATION_SUMMARY=true
       - ENABLE_SEMANTIC_MEMORY=true
+      - SEMANTIC_MEMORY_DIR=/app/data/semantic-memory
       - SLIDING_WINDOW_SIZE=10
       # Consul 服务注册
       - CONSUL_HOST=consul
@@ -243,6 +246,46 @@ services:
       vector-search-service:
         condition: service_started
       literature-search-service:
+        condition: service_started
+      research-mcp-server:
+        condition: service_started
+    volumes:
+      - ./backend/data/semantic-memory:/app/data/semantic-memory
+
+  research-mcp-server:
+    build:
+      context: ./backend/services/research-mcp-server
+      dockerfile: Dockerfile
+    container_name: researchgo-mcp
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - PAPER_STORAGE_SERVICE_URL=http://paper-storage-service:8003
+      - VECTOR_SEARCH_SERVICE_URL=http://vector-search-service:8004
+      - LITERATURE_SERVICE_URL=http://literature-search-service:8005
+      - MINDMAP_SERVICE_URL=http://mindmap-service:8007
+      - ANALYSIS_SERVICE_URL=http://analysis-service:8008
+      - CONSUL_HOST=consul
+      - SERVICE_NAME=research-mcp-server
+      - SERVICE_PORT=8010
+    networks:
+      - researchgo-network
+    depends_on:
+      consul:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      paper-storage-service:
+        condition: service_started
+      vector-search-service:
+        condition: service_started
+      literature-search-service:
+        condition: service_started
+      mindmap-service:
+        condition: service_started
+      analysis-service:
         condition: service_started
 
   # 认证服务
@@ -368,11 +411,19 @@ services:
       - MILVUS_PORT=19530
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-qwen-max}
+      - OPENAI_TRANSLATION_MODEL=${OPENAI_TRANSLATION_MODEL:-}
+      - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      - RERANKER_MODEL=/models/reranker
+      - VECTOR_SEARCH_DATA_DIR=/app/data
       - AUTH_SERVICE_URL=http://auth-service:8001
       # Consul 服务注册
       - CONSUL_HOST=consul
       - SERVICE_NAME=vector-search-service
       - SERVICE_PORT=8004
+    volumes:
+      - ./backend/reranker:/models/reranker:ro
+      - ./backend/data/vector-search:/app/data
     networks:
       - researchgo-network
     depends_on:
@@ -395,6 +446,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-qwen-max}
       # Consul 服务注册
       - CONSUL_HOST=consul
       - SERVICE_NAME=literature-search-service
@@ -417,6 +469,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-qwen-max}
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
@@ -446,6 +499,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-qwen-max}
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
@@ -462,6 +516,23 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_USE_GATEWAY: "true"
+        VITE_GATEWAY_URL: ""
+    container_name: researchgo-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - researchgo-network
+    depends_on:
+      traefik:
+        condition: service_started
 
 networks:
   researchgo-network:

@@ -1,439 +1,555 @@
-"""
-Semantic Memory Service
+﻿"""Markdown-backed semantic memory service for ResearchGO."""
 
-语义记忆服务：基于向量数据库的跨会话长期记忆
-- 存储用户的重要信息和偏好
-- 支持语义检索相关记忆
-- 自动评估记忆重要性
-"""
+from __future__ import annotations
 
 import json
 import logging
-from typing import List, Dict, Any, Optional
+import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-import httpx
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 
 from ..config import (
-    VECTOR_SEARCH_SERVICE_URL,
     ENABLE_SEMANTIC_MEMORY,
-    SEMANTIC_MEMORY_TOP_K,
     MEMORY_IMPORTANCE_THRESHOLD,
     OPENAI_API_KEY,
+    OPENAI_BASE_URL,
     OPENAI_MODEL,
-    OPENAI_BASE_URL
+    SEMANTIC_MEMORY_DIR,
+    SEMANTIC_MEMORY_TOP_K,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class MemoryType(str, Enum):
-    """记忆类型"""
-    USER_PREFERENCE = "user_preference"      # 用户偏好
-    RESEARCH_INTEREST = "research_interest"  # 研究兴趣
-    KEY_FINDING = "key_finding"              # 重要发现
-    TASK_CONTEXT = "task_context"            # 任务上下文
-    FEEDBACK = "feedback"                    # 用户反馈
+    USER_PREFERENCE = "user_preference"
+    RESEARCH_INTEREST = "research_interest"
+    KEY_FINDING = "key_finding"
+    TASK_CONTEXT = "task_context"
+    FEEDBACK = "feedback"
 
 
 @dataclass
 class Memory:
-    """记忆条目"""
     id: str
     user_id: str
     content: str
     memory_type: MemoryType
-    importance: float  # 0.0 - 1.0
+    importance: float
     created_at: str
     metadata: Dict[str, Any] = field(default_factory=dict)
-    relevance_score: float = 0.0  # 检索时的相关性分数
+    relevance_score: float = 0.0
 
 
 @dataclass
 class MemoryExtractionResult:
-    """记忆提取结果"""
     memories: List[Dict[str, Any]]
     has_important_info: bool
 
 
+SECTION_TITLES = {
+    MemoryType.USER_PREFERENCE: "User Preferences",
+    MemoryType.RESEARCH_INTEREST: "Research Interests",
+    MemoryType.KEY_FINDING: "Key Findings",
+    MemoryType.TASK_CONTEXT: "Task Context",
+    MemoryType.FEEDBACK: "Feedback",
+}
+
+SECTION_ORDER = [
+    MemoryType.RESEARCH_INTEREST,
+    MemoryType.USER_PREFERENCE,
+    MemoryType.TASK_CONTEXT,
+    MemoryType.KEY_FINDING,
+    MemoryType.FEEDBACK,
+]
+
+ENTRY_RE = re.compile(
+    r"^- \[(?P<created_at>[^\]|]+) \| importance=(?P<importance>[0-9.]+)(?: \| metadata=(?P<metadata>.+?))?\] (?P<content>.+)$"
+)
+TOKEN_RE = re.compile(r"[A-Za-z0-9_\-\u4e00-\u9fff]+")
+
+
 class SemanticMemoryService:
-    """
-    语义记忆服务
-    
-    功能：
-    1. 从对话中提取重要信息
-    2. 存储到向量数据库（复用现有的 Milvus）
-    3. 语义检索相关记忆
-    4. 自动衰减和清理旧记忆
-    
-    存储设计：
-    - 使用单独的 Milvus Collection: user_memories
-    - 字段: user_id, content, memory_type, importance, embedding, created_at
-    """
-    
-    COLLECTION_NAME = "user_memories"
-    
+    """Persist long-term memory as per-user markdown files."""
+
     def __init__(
         self,
-        vector_service_url: str = VECTOR_SEARCH_SERVICE_URL,
         top_k: int = SEMANTIC_MEMORY_TOP_K,
-        importance_threshold: float = MEMORY_IMPORTANCE_THRESHOLD
+        importance_threshold: float = MEMORY_IMPORTANCE_THRESHOLD,
+        memory_dir: str = SEMANTIC_MEMORY_DIR,
     ):
-        self.vector_service_url = vector_service_url
         self.top_k = top_k
         self.importance_threshold = importance_threshold
-        
-        # 初始化 LLM（用于提取记忆）
+        self.memory_dir = Path(memory_dir)
+        self._ensure_memory_dir()
+
         llm_kwargs = {
             "model": OPENAI_MODEL,
-            "temperature": 0.3,
+            "temperature": 0.2,
             "api_key": OPENAI_API_KEY,
         }
         if OPENAI_BASE_URL:
             llm_kwargs["base_url"] = OPENAI_BASE_URL
-        
         self.llm = ChatOpenAI(**llm_kwargs)
-    
-    async def _call_vector_service(
-        self,
-        method: str,
-        endpoint: str,
-        data: Optional[Dict] = None,
-        token: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """调用向量搜索服务"""
-        url = f"{self.vector_service_url}{endpoint}"
-        headers = {}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            if method == "GET":
-                response = await client.get(url, headers=headers)
-            elif method == "POST":
-                response = await client.post(url, json=data, headers=headers)
-            elif method == "DELETE":
-                response = await client.delete(url, headers=headers)
-            else:
-                raise ValueError(f"Unsupported method: {method}")
-            
-            response.raise_for_status()
-            return response.json()
-    
+
+    def _ensure_memory_dir(self) -> None:
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+
+    def _safe_user_id(self, user_id: str) -> str:
+        return re.sub(r"[^A-Za-z0-9_.-]", "_", user_id)
+
+    def _memory_path(self, user_id: str) -> Path:
+        return self.memory_dir / f"{self._safe_user_id(user_id)}.md"
+
+    def _now_iso(self) -> str:
+        return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    def get_memory_file_info(self, user_id: str) -> Dict[str, Any]:
+        path = self._memory_path(user_id)
+        updated_at = None
+        if path.exists():
+            updated_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).replace(microsecond=0).isoformat()
+        return {
+            "exists": path.exists(),
+            "file_name": path.name,
+            "updated_at": updated_at,
+        }
+
+    def get_memory_markdown(self, user_id: str) -> str:
+        path = self._memory_path(user_id)
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        return self._render_markdown(user_id, [])
+
+    def save_memory_markdown(self, user_id: str, content: str) -> None:
+        self._ensure_memory_dir()
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not normalized:
+            normalized = self._render_markdown(user_id, []).strip()
+        self._memory_path(user_id).write_text(normalized + "\n", encoding="utf-8")
+
+    def _normalize_text(self, text: str) -> str:
+        return re.sub(r"\s+", " ", text.strip().lower())
+
+    def _make_memory_id(self, user_id: str, memory_type: MemoryType, content: str) -> str:
+        normalized = self._normalize_text(content)
+        return f"{self._safe_user_id(user_id)}:{memory_type.value}:{abs(hash(normalized))}"
+
+    def _serialize_metadata(self, metadata: Dict[str, Any]) -> str:
+        if not metadata:
+            return ""
+        return json.dumps(metadata, ensure_ascii=True, sort_keys=True)
+
+    def _parse_metadata(self, raw: Optional[str]) -> Dict[str, Any]:
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse memory metadata: %s", raw)
+            return {}
+
+    def _load_memories(self, user_id: str) -> List[Memory]:
+        path = self._memory_path(user_id)
+        if not path.exists():
+            return []
+
+        current_type: Optional[MemoryType] = None
+        memories: List[Memory] = []
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("## "):
+                title = line[3:].strip()
+                current_type = next(
+                    (memory_type for memory_type, section_title in SECTION_TITLES.items() if section_title == title),
+                    None,
+                )
+                continue
+            if not current_type or not line.startswith("- "):
+                continue
+            match = ENTRY_RE.match(line)
+            if not match:
+                continue
+            metadata = self._parse_metadata(match.group("metadata"))
+            content = match.group("content").strip()
+            memories.append(
+                Memory(
+                    id=self._make_memory_id(user_id, current_type, content),
+                    user_id=user_id,
+                    content=content,
+                    memory_type=current_type,
+                    importance=float(match.group("importance")),
+                    created_at=match.group("created_at"),
+                    metadata=metadata,
+                )
+            )
+        return memories
+
+    def _render_markdown(self, user_id: str, memories: List[Memory]) -> str:
+        lines = [
+            "# Semantic Memory",
+            "",
+            f"- User ID: {user_id}",
+            f"- Updated At: {self._now_iso()}",
+            f"- Total Entries: {len(memories)}",
+            "",
+        ]
+
+        grouped: Dict[MemoryType, List[Memory]] = {memory_type: [] for memory_type in SECTION_ORDER}
+        for memory in memories:
+            grouped.setdefault(memory.memory_type, []).append(memory)
+
+        for memory_type in SECTION_ORDER:
+            lines.append(f"## {SECTION_TITLES[memory_type]}")
+            entries = sorted(
+                grouped.get(memory_type, []),
+                key=lambda item: (-item.importance, item.created_at, item.content.lower()),
+            )
+            if not entries:
+                lines.append("- None")
+                lines.append("")
+                continue
+            for memory in entries:
+                metadata = self._serialize_metadata(memory.metadata)
+                meta_suffix = f" | metadata={metadata}" if metadata else ""
+                lines.append(
+                    f"- [{memory.created_at} | importance={memory.importance:.2f}{meta_suffix}] {memory.content}"
+                )
+            lines.append("")
+
+        return "\n".join(lines).strip() + "\n"
+
+    def _render_entry(self, memory: Memory) -> str:
+        metadata = self._serialize_metadata(memory.metadata)
+        meta_suffix = f" | metadata={metadata}" if metadata else ""
+        return f"- [{memory.created_at} | importance={memory.importance:.2f}{meta_suffix}] {memory.content}"
+
+    def _save_memories(self, user_id: str, memories: List[Memory]) -> None:
+        self._ensure_memory_dir()
+        rendered = self._render_markdown(user_id, memories)
+        self._memory_path(user_id).write_text(rendered, encoding="utf-8")
+
+    def _append_memory_entry(self, user_id: str, memory: Memory) -> None:
+        self._ensure_memory_dir()
+        path = self._memory_path(user_id)
+        content = self.get_memory_markdown(user_id)
+        lines = content.rstrip("\n").splitlines()
+        section_title = f"## {SECTION_TITLES[memory.memory_type]}"
+        entry = self._render_entry(memory)
+
+        if section_title not in lines:
+            if lines and lines[-1].strip():
+                lines.append("")
+            lines.extend([section_title, entry, ""])
+            path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+            return
+
+        section_index = lines.index(section_title)
+        next_section_index = next(
+            (index for index in range(section_index + 1, len(lines)) if lines[index].startswith("## ")),
+            len(lines),
+        )
+        section_lines = lines[section_index + 1 : next_section_index]
+        section_lines = [line for line in section_lines if line.strip() != "- None"]
+
+        insert_at = next_section_index
+        while insert_at > section_index + 1 and not lines[insert_at - 1].strip():
+            insert_at -= 1
+
+        lines = lines[: section_index + 1] + section_lines + lines[next_section_index:]
+        insert_at = section_index + 1 + len(section_lines)
+        if insert_at < len(lines) and lines[insert_at].strip():
+            lines.insert(insert_at, "")
+        lines.insert(insert_at, entry)
+
+        path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+
+    def _extract_json(self, text: str) -> Dict[str, Any]:
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?", "", cleaned).strip()
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start >= 0 and end >= start:
+            cleaned = cleaned[start : end + 1]
+        return json.loads(cleaned)
+
+    def _score_memory(self, query: str, memory: Memory) -> float:
+        query_tokens = set(TOKEN_RE.findall(query.lower()))
+        content_tokens = set(TOKEN_RE.findall(memory.content.lower()))
+        overlap = len(query_tokens & content_tokens)
+        coverage = overlap / max(len(query_tokens), 1)
+        metadata_text = " ".join(str(value) for value in memory.metadata.values()).lower()
+        metadata_bonus = 0.05 if metadata_text and any(token in metadata_text for token in query_tokens) else 0.0
+        return round((memory.importance * 0.6) + (coverage * 0.35) + metadata_bonus, 4)
+
+    def _merge_memory(self, memories: List[Memory], incoming: Memory) -> Tuple[List[Memory], bool]:
+        incoming_key = (incoming.memory_type, self._normalize_text(incoming.content))
+        for index, existing in enumerate(memories):
+            existing_key = (existing.memory_type, self._normalize_text(existing.content))
+            if existing_key != incoming_key:
+                continue
+            merged_metadata = {**existing.metadata, **incoming.metadata}
+            memories[index] = Memory(
+                id=existing.id,
+                user_id=existing.user_id,
+                content=existing.content,
+                memory_type=existing.memory_type,
+                importance=max(existing.importance, incoming.importance),
+                created_at=existing.created_at,
+                metadata=merged_metadata,
+                relevance_score=existing.relevance_score,
+            )
+            return memories, False
+        memories.append(incoming)
+        return memories, True
+
     async def extract_memories(
         self,
         messages: List[Dict[str, Any]],
-        user_id: str
+        user_id: str,
     ) -> MemoryExtractionResult:
-        """
-        从对话中提取值得记住的信息
-        
-        提取类型：
-        1. 用户偏好（如：喜欢简洁的回答）
-        2. 研究兴趣（如：关注 transformer 领域）
-        3. 重要发现（如：找到了有价值的论文）
-        4. 任务上下文（如：正在写关于 X 的论文）
-        """
         if not ENABLE_SEMANTIC_MEMORY:
             return MemoryExtractionResult(memories=[], has_important_info=False)
-        
-        # 只分析最近的对话
+
         recent_messages = messages[-10:] if len(messages) > 10 else messages
-        
-        # 构建对话文本
-        conversation_text = []
-        for msg in recent_messages:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")[:300]
-            if role in ["user", "assistant"]:
-                conversation_text.append(f"{role}: {content}")
-        
-        if not conversation_text:
+        conversation_lines: List[str] = []
+        for message in recent_messages:
+            role = message.get("role", "unknown")
+            content = str(message.get("content", "")).strip()
+            if role not in {"user", "assistant"} or not content:
+                continue
+            conversation_lines.append(f"{role}: {content[:500]}")
+
+        if not conversation_lines:
             return MemoryExtractionResult(memories=[], has_important_info=False)
-        
-        conversation_str = "\n".join(conversation_text)
-        
-        prompt = f"""分析以下对话，提取值得长期记住的用户信息。
 
-对话内容：
-{conversation_str}
+        conversation_text = "\n".join(conversation_lines)
+        prompt = f"""Review the conversation below and extract only long-lived memory worth saving for future chats.
 
-请以 JSON 格式输出，提取以下类型的信息（如果有的话）：
-1. user_preference: 用户的偏好和习惯
-2. research_interest: 用户的研究兴趣和关注领域
-3. key_finding: 对话中发现的重要信息
-4. task_context: 用户当前的任务或项目背景
+User ID: {user_id}
+Conversation:
+{conversation_text}
 
-输出格式：
+Extract only information that is stable or repeatedly useful, such as:
+- user_preference: answer style, habits, formatting preferences
+- research_interest: recurring topics, domains, methods, datasets
+- key_finding: durable facts established during the discussion
+- task_context: ongoing project context that may matter in future turns
+- feedback: explicit feedback on what the assistant should keep doing or avoid
+
+Rules:
+- Ignore one-off small talk and transient logistics.
+- Keep each memory concise and standalone.
+- Use importance between 0.0 and 1.0.
+- Return valid JSON only.
+
+Expected format:
 {{
   "memories": [
     {{
       "type": "research_interest",
-      "content": "用户正在研究大语言模型在医学领域的应用",
-      "importance": 0.8
+      "content": "User is focused on retrieval-augmented generation evaluation.",
+      "importance": 0.84
     }}
   ],
   "has_important_info": true
 }}
 
-如果没有值得记住的信息，返回 {{"memories": [], "has_important_info": false}}
+If nothing is worth storing, return:
+{{"memories": [], "has_important_info": false}}"""
 
-请只返回 JSON，不要其他内容："""
-        
         try:
-            response = await self.llm.ainvoke([
-                SystemMessage(content="你是一个信息提取专家，善于从对话中识别重要信息。只返回有效的 JSON。"),
-                HumanMessage(content=prompt)
-            ])
-            
-            # 解析 JSON
-            result_text = response.content.strip()
-            # 处理可能的 markdown 代码块
-            if result_text.startswith("```"):
-                result_text = result_text.split("```")[1]
-                if result_text.startswith("json"):
-                    result_text = result_text[4:]
-            
-            result = json.loads(result_text)
-            
-            # 过滤低重要性记忆
-            filtered_memories = [
-                m for m in result.get("memories", [])
-                if m.get("importance", 0) >= self.importance_threshold
-            ]
-            
-            return MemoryExtractionResult(
-                memories=filtered_memories,
-                has_important_info=result.get("has_important_info", False)
+            response = await self.llm.ainvoke(
+                [
+                    SystemMessage(
+                        content=(
+                            "You extract durable conversational memory. "
+                            "Return compact JSON only, with no markdown wrapper."
+                        )
+                    ),
+                    HumanMessage(content=prompt),
+                ]
             )
-            
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse memory extraction result: {e}")
+            result = self._extract_json(str(response.content))
+            memories = []
+            for memory in result.get("memories", []):
+                memory_type = str(memory.get("type", "")).strip()
+                if memory_type not in {item.value for item in MemoryType}:
+                    continue
+                importance = float(memory.get("importance", 0.0))
+                if importance < self.importance_threshold:
+                    continue
+                content = str(memory.get("content", "")).strip()
+                if not content:
+                    continue
+                memories.append(
+                    {
+                        "type": memory_type,
+                        "content": content,
+                        "importance": max(0.0, min(1.0, importance)),
+                    }
+                )
+            return MemoryExtractionResult(
+                memories=memories,
+                has_important_info=bool(memories) and bool(result.get("has_important_info", True)),
+            )
+        except Exception as exc:
+            logger.warning("Memory extraction failed for user %s: %s", user_id, exc)
             return MemoryExtractionResult(memories=[], has_important_info=False)
-        except Exception as e:
-            logger.error(f"Memory extraction failed: {e}")
-            return MemoryExtractionResult(memories=[], has_important_info=False)
-    
+
     async def store_memory(
         self,
         user_id: str,
         content: str,
         memory_type: MemoryType,
         importance: float,
-        token: str,
-        metadata: Optional[Dict] = None
+        token: Optional[str],
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """
-        存储记忆到向量数据库
-        
-        注意：这里复用 vector-search-service 的能力
-        实际存储时，使用特殊的 paper_id 格式：memory_{user_id}
-        """
         if not ENABLE_SEMANTIC_MEMORY:
             return False
-        
+
         try:
-            memory_doc = {
-                "paper_id": f"memory_{user_id}",
-                "title": f"User Memory: {memory_type.value}",
-                "file_name": f"memory_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                "content": content,
-                "max_chunk_size": 1000,  # 记忆通常较短
-                "structured_chunks": [{
-                    "content": content,
-                    "section_type": memory_type.value,
-                    "section_title": memory_type.value,
-                    "hierarchy_path": f"Memory > {memory_type.value}",
-                    "char_count": len(content),
-                    "is_complete_section": True,
-                    "metadata": {
-                        "user_id": user_id,
-                        "importance": importance,
-                        "memory_type": memory_type.value,
-                        **(metadata or {})
-                    }
-                }]
-            }
-            
-            result = await self._call_vector_service(
-                "POST",
-                "/api/vector/index",
-                data=memory_doc,
-                token=token
+            memories = self._load_memories(user_id)
+            incoming = Memory(
+                id=self._make_memory_id(user_id, memory_type, content),
+                user_id=user_id,
+                content=content.strip(),
+                memory_type=memory_type,
+                importance=max(0.0, min(1.0, importance)),
+                created_at=self._now_iso(),
+                metadata=metadata or {},
             )
-            
-            logger.info(f"Stored memory for user {user_id}: {memory_type.value}")
-            return result.get("success", True)
-            
-        except Exception as e:
-            logger.error(f"Failed to store memory: {e}")
+            memories, created = self._merge_memory(memories, incoming)
+            if created:
+                self._append_memory_entry(user_id, incoming)
+            elif not self._memory_path(user_id).exists():
+                self._save_memories(user_id, memories)
+            logger.info("%s semantic memory for user %s: %s", "Stored" if created else "Updated", user_id, memory_type.value)
+            return True
+        except Exception as exc:
+            logger.error("Failed to store semantic memory for user %s: %s", user_id, exc)
             return False
-    
+
     async def recall_relevant(
         self,
         user_id: str,
         query: str,
-        token: str,
-        top_k: Optional[int] = None
+        token: Optional[str],
+        top_k: Optional[int] = None,
     ) -> List[Memory]:
-        """
-        检索与查询相关的记忆
-        """
         if not ENABLE_SEMANTIC_MEMORY:
             return []
-        
-        top_k = top_k or self.top_k
-        
-        try:
-            # 使用混合检索搜索用户记忆
-            result = await self._call_vector_service(
-                "POST",
-                "/api/vector/hybrid-search",
-                data={
-                    "query": query,
-                    "top_k": top_k,
-                    "paper_id": f"memory_{user_id}",  # 限定在用户记忆中搜索
-                    "use_reranker": True,
-                    "translate_query": False  # 记忆通常是中文
-                },
-                token=token
-            )
-            
-            memories = []
-            for hit in result.get("results", []):
-                # 从 metadata 中提取记忆信息
-                source = hit.get("source", "")
-                
-                memories.append(Memory(
-                    id=hit.get("chunk_id", ""),
-                    user_id=user_id,
-                    content=hit.get("content", ""),
-                    memory_type=MemoryType(source) if source in [t.value for t in MemoryType] else MemoryType.TASK_CONTEXT,
-                    importance=0.8,  # 检索到的记忆默认重要
-                    created_at=hit.get("upload_time", ""),
-                    relevance_score=hit.get("relevance_score", 0)
-                ))
-            
-            logger.info(f"Recalled {len(memories)} memories for user {user_id}")
-            return memories
-            
-        except Exception as e:
-            logger.error(f"Failed to recall memories: {e}")
+
+        memories = self._load_memories(user_id)
+        if not memories:
             return []
-    
+
+        for memory in memories:
+            memory.relevance_score = self._score_memory(query, memory)
+
+        limit = top_k or self.top_k
+        ranked = sorted(
+            (memory for memory in memories if memory.relevance_score > 0 or memory.importance >= self.importance_threshold),
+            key=lambda item: (-item.relevance_score, -item.importance, item.created_at),
+        )
+        return ranked[:limit]
+
     async def get_user_context(
         self,
         user_id: str,
         current_query: str,
-        token: str
+        token: Optional[str],
     ) -> str:
-        """
-        获取用户上下文：将相关记忆格式化为上下文字符串
-        """
-        if not ENABLE_SEMANTIC_MEMORY:
-            return ""
-        
-        memories = await self.recall_relevant(user_id, current_query, token)
-        
+        raw_markdown = self.get_memory_markdown(user_id).strip()
+        has_user_content = any(
+            line.strip()
+            and not line.startswith("#")
+            and not line.startswith("- User ID:")
+            and not line.startswith("- Updated At:")
+            and not line.startswith("- Total Entries:")
+            and line.strip() != "- None"
+            for line in raw_markdown.splitlines()
+        )
+        if has_user_content:
+            return raw_markdown[:12000]
+
+        memories = await self.recall_relevant(user_id=user_id, query=current_query, token=token)
         if not memories:
             return ""
-        
-        # 按类型分组
-        by_type: Dict[str, List[str]] = {}
-        for m in memories:
-            type_name = m.memory_type.value
-            if type_name not in by_type:
-                by_type[type_name] = []
-            by_type[type_name].append(m.content)
-        
-        # 格式化输出
-        context_parts = []
-        
-        if "research_interest" in by_type:
-            context_parts.append(f"用户研究兴趣: {'; '.join(by_type['research_interest'][:3])}")
-        
-        if "user_preference" in by_type:
-            context_parts.append(f"用户偏好: {'; '.join(by_type['user_preference'][:2])}")
-        
-        if "task_context" in by_type:
-            context_parts.append(f"当前任务: {'; '.join(by_type['task_context'][:2])}")
-        
-        if "key_finding" in by_type:
-            context_parts.append(f"之前发现: {'; '.join(by_type['key_finding'][:2])}")
-        
-        return "\n".join(context_parts)
-    
+
+        grouped: Dict[MemoryType, List[str]] = {memory_type: [] for memory_type in SECTION_ORDER}
+        for memory in memories:
+            grouped.setdefault(memory.memory_type, []).append(memory.content)
+
+        parts: List[str] = []
+        for memory_type in SECTION_ORDER:
+            entries = grouped.get(memory_type, [])
+            if not entries:
+                continue
+            label = SECTION_TITLES[memory_type]
+            bullet_lines = "\n".join(f"- {entry}" for entry in entries[:3])
+            parts.append(f"{label}:\n{bullet_lines}")
+        return "\n\n".join(parts)
+
     async def process_and_store(
         self,
         messages: List[Dict[str, Any]],
         user_id: str,
-        token: str
+        token: Optional[str],
     ) -> int:
-        """
-        处理对话并存储提取的记忆
-        
-        Returns:
-            存储的记忆数量
-        """
         if not ENABLE_SEMANTIC_MEMORY:
             return 0
-        
-        # 提取记忆
-        extraction_result = await self.extract_memories(messages, user_id)
-        
-        if not extraction_result.has_important_info:
+
+        extraction = await self.extract_memories(messages=messages, user_id=user_id)
+        if not extraction.has_important_info:
             return 0
-        
-        # 存储每条记忆
+
         stored_count = 0
-        for memory in extraction_result.memories:
+        for memory in extraction.memories:
             try:
-                memory_type = MemoryType(memory.get("type", "task_context"))
-            except ValueError:
-                memory_type = MemoryType.TASK_CONTEXT
-            
-            success = await self.store_memory(
-                user_id=user_id,
-                content=memory.get("content", ""),
-                memory_type=memory_type,
-                importance=memory.get("importance", 0.7),
-                token=token
-            )
-            
-            if success:
-                stored_count += 1
-        
-        logger.info(f"Stored {stored_count} memories for user {user_id}")
+                success = await self.store_memory(
+                    user_id=user_id,
+                    content=memory["content"],
+                    memory_type=MemoryType(memory["type"]),
+                    importance=float(memory["importance"]),
+                    token=token,
+                    metadata={"source": "conversation"},
+                )
+                if success:
+                    stored_count += 1
+            except Exception as exc:
+                logger.warning("Failed to persist extracted memory for user %s: %s", user_id, exc)
         return stored_count
-    
-    async def clear_user_memories(self, user_id: str, token: str) -> bool:
-        """清除用户的所有记忆"""
+
+    async def clear_user_memories(self, user_id: str, token: Optional[str]) -> bool:
         try:
-            await self._call_vector_service(
-                "DELETE",
-                f"/api/vector/delete/memory_{user_id}",
-                token=token
-            )
-            logger.info(f"Cleared all memories for user {user_id}")
+            path = self._memory_path(user_id)
+            if path.exists():
+                path.unlink()
             return True
-        except Exception as e:
-            logger.error(f"Failed to clear memories: {e}")
+        except Exception as exc:
+            logger.error("Failed to clear semantic memories for user %s: %s", user_id, exc)
             return False
 
 
-# 全局实例
 _semantic_memory_service: Optional[SemanticMemoryService] = None
 
 
 def get_semantic_memory_service() -> SemanticMemoryService:
-    """获取语义记忆服务单例"""
     global _semantic_memory_service
     if _semantic_memory_service is None:
         _semantic_memory_service = SemanticMemoryService()
-        logger.info("Initialized SemanticMemoryService")
     return _semantic_memory_service
-

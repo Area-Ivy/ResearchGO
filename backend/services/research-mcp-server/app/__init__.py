@@ -1,0 +1,1 @@
+"""ResearchGO MCP server package."""

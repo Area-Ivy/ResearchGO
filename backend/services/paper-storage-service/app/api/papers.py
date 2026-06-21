@@ -1,64 +1,246 @@
 """
-论文存储API
+Paper storage API.
 """
+import asyncio
+import io
 import logging
 import os
-import io
+from datetime import datetime, timedelta
+from pathlib import Path
+
 import httpx
 import pdfplumber
-from datetime import datetime
 from dotenv import load_dotenv
-from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends, BackgroundTasks, Request
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from jose import jwt
 from minio.error import S3Error
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
-# 加载环境变量
-load_dotenv()
-
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models.paper import Paper
-from app.schemas.paper import PaperUploadResponse, PaperListResponse, PaperInfo, DeleteResponse
+from app.schemas.paper import (
+    DeleteResponse,
+    PaperInfo,
+    PaperListResponse,
+    PaperRenameRequest,
+    PaperStatsResponse,
+    PaperStatusResponse,
+    PaperUploadResponse,
+    WeeklyCount,
+)
 from app.utils.auth_client import get_current_user
-from app.utils.minio_client import get_minio_client, ensure_bucket_exists, MINIO_BUCKET
+from app.utils.minio_client import MINIO_BUCKET, ensure_bucket_exists, get_minio_client
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# 向量搜索服务URL
 VECTOR_SEARCH_SERVICE_URL = os.getenv("VECTOR_SEARCH_SERVICE_URL", "http://localhost:8004")
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
+ALGORITHM = "HS256"
+INDEX_REQUEST_TIMEOUT_SECONDS = float(os.getenv("INDEX_REQUEST_TIMEOUT_SECONDS", "600"))
+STALE_INDEXING_MINUTES = int(os.getenv("STALE_INDEXING_MINUTES", "30"))
 
-# 打印SECRET_KEY前几位用于调试（不打印完整值）
-_sk = os.getenv("SECRET_KEY", "")
-logger.info(f"SECRET_KEY loaded: {_sk[:10]}..." if len(_sk) > 10 else "SECRET_KEY not set or too short!")
+router = APIRouter(prefix="/api/papers", tags=["paper-storage"])
+
+DASHBOARD_FIELDS = {
+    "Algorithms": ("algorithm", "optimization", "sorting", "graph", "complexity", "theory"),
+    "Data": ("data", "database", "dataset", "mining", "analytics", "retrieval"),
+    "Systems": ("system", "distributed", "architecture", "cloud", "network", "runtime"),
+    "AI/ML": ("machine learning", "deep learning", "neural", "transformer", "llm", "ai", "model"),
+    "Theory": ("proof", "logic", "formal", "mathematics", "theorem", "complexity"),
+    "Security": ("security", "privacy", "cryptography", "attack", "adversarial", "secure"),
+}
+
+
+def _serialize_datetime(value):
+    return value.isoformat() if value else None
+
+
+def _truncate_error(message: str, limit: int = 500) -> str:
+    if not message:
+        return "Unknown indexing error."
+    message = str(message).strip()
+    if len(message) <= limit:
+        return message
+    return message[: limit - 3] + "..."
+
+
+def _build_status_message(paper: Paper) -> str:
+    status_value = paper.processing_status or "uploaded"
+    if status_value == "indexed":
+        chunks = paper.chunks_created or 0
+        return f"File uploaded and indexed successfully. {chunks} chunks are ready for search."
+    if status_value == "failed":
+        return paper.processing_error or "File uploaded, but indexing failed."
+    if status_value == "indexing":
+        return "File uploaded successfully. Vector indexing is in progress."
+    return "File uploaded successfully."
+
+
+def _month_start(now: datetime) -> datetime:
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _week_windows(now: datetime, weeks: int = 30):
+    current_week_start = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    first_week_start = current_week_start - timedelta(weeks=weeks - 1)
+    return [
+        (
+            first_week_start + timedelta(weeks=index),
+            first_week_start + timedelta(weeks=index + 1),
+        )
+        for index in range(weeks)
+    ]
+
+
+def _format_weekly_counts(timestamps, now: datetime) -> list[WeeklyCount]:
+    windows = _week_windows(now)
+    counts = [0 for _ in windows]
+
+    for timestamp in timestamps:
+        if not timestamp:
+            continue
+        for index, (start, end) in enumerate(windows):
+            if start <= timestamp < end:
+                counts[index] += 1
+                break
+
+    return [
+        WeeklyCount(
+            label=f"W{index + 1}",
+            value=counts[index],
+            start=start.isoformat(),
+            end=(end - timedelta(microseconds=1)).isoformat(),
+        )
+        for index, (start, end) in enumerate(windows)
+    ]
+
+
+def _classify_field(paper: Paper) -> str:
+    text = " ".join(
+        value or ""
+        for value in (paper.title, paper.original_name, paper.abstract, paper.authors)
+    ).lower()
+
+    best_field = "AI/ML"
+    best_score = 0
+    for field, keywords in DASHBOARD_FIELDS.items():
+        score = sum(1 for keyword in keywords if keyword in text)
+        if score > best_score:
+            best_field = field
+            best_score = score
+    return best_field
+
+
+def _set_paper_status(object_name: str, **fields):
+    db = SessionLocal()
+    try:
+        paper = db.query(Paper).filter(Paper.object_name == object_name).first()
+        if not paper:
+            logger.warning("Paper not found when updating status: %s", object_name)
+            return
+
+        for key, value in fields.items():
+            setattr(paper, key, value)
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Failed to update paper status for %s: %s", object_name, exc)
+    finally:
+        db.close()
+
+
+def _mark_stale_indexing_jobs(db: Session):
+    cutoff = datetime.utcnow() - timedelta(minutes=STALE_INDEXING_MINUTES)
+    stale_papers = db.query(Paper).filter(
+        Paper.processing_status == "indexing",
+        Paper.updated_at < cutoff,
+    ).all()
+
+    if not stale_papers:
+        return
+
+    for paper in stale_papers:
+        paper.processing_status = "failed"
+        paper.processing_error = (
+            f"Indexing did not finish within {STALE_INDEXING_MINUTES} minutes. "
+            "Please retry the upload."
+        )
+        paper.chunks_created = 0
+        paper.indexed_at = None
+
+    db.commit()
+    logger.warning("Marked %s stale indexing jobs as failed", len(stale_papers))
+
+
+def _create_upload_response(paper: Paper) -> PaperUploadResponse:
+    return PaperUploadResponse(
+        object_name=paper.object_name,
+        original_name=paper.original_name,
+        size=paper.file_size,
+        content_type=paper.content_type,
+        upload_time=_serialize_datetime(paper.created_at) or datetime.utcnow().isoformat(),
+        processing_status=paper.processing_status,
+        processing_error=paper.processing_error,
+        chunks_created=paper.chunks_created or 0,
+        indexed_at=_serialize_datetime(paper.indexed_at),
+        message=_build_status_message(paper),
+    )
+
+
+def _build_status_response(paper: Paper) -> PaperStatusResponse:
+    return PaperStatusResponse(
+        object_name=paper.object_name,
+        processing_status=paper.processing_status,
+        processing_error=paper.processing_error,
+        chunks_created=paper.chunks_created or 0,
+        indexed_at=_serialize_datetime(paper.indexed_at),
+        updated_at=_serialize_datetime(paper.updated_at),
+    )
+
+
+def _build_internal_token(current_user: dict) -> str:
+    expire = datetime.utcnow() + timedelta(hours=1)
+    token_data = {
+        "sub": current_user["username"],
+        "user_id": current_user["id"],
+        "is_active": current_user.get("is_active", True),
+        "is_superuser": current_user.get("is_superuser", False),
+        "exp": expire,
+    }
+    return jwt.encode(token_data, SECRET_KEY, algorithm=ALGORITHM)
 
 
 async def extract_text_from_pdf(pdf_data: bytes, max_pages: int = 50) -> str:
-    """从PDF中提取文本"""
+    """Extract plain text from the first pages of a PDF."""
     try:
         text_content = []
         pdf_stream = io.BytesIO(pdf_data)
-        
+
         with pdfplumber.open(pdf_stream) as pdf:
             total_pages = len(pdf.pages)
             pages_to_extract = min(total_pages, max_pages)
-            
-            logger.info(f"Extracting text from {pages_to_extract} pages (total: {total_pages})")
-            
-            for i, page in enumerate(pdf.pages[:pages_to_extract]):
+            logger.info("Extracting text from %s pages (total=%s)", pages_to_extract, total_pages)
+
+            for index, page in enumerate(pdf.pages[:pages_to_extract], start=1):
                 try:
                     text = page.extract_text()
                     if text:
-                        text_content.append(f"--- Page {i+1} ---\n{text}")
-                except Exception as e:
-                    logger.warning(f"Failed to extract text from page {i+1}: {e}")
-                    continue
-        
-        full_text = "\n\n".join(text_content)
-        logger.info(f"Extracted {len(full_text)} characters from PDF")
-        return full_text.strip()
-        
-    except Exception as e:
-        logger.error(f"Error extracting text from PDF: {e}")
+                        text_content.append(f"--- Page {index} ---\n{text}")
+                except Exception as exc:
+                    logger.warning("Failed to extract text from page %s: %s", index, exc)
+
+        full_text = "\n\n".join(text_content).strip()
+        logger.info("Extracted %s characters from PDF", len(full_text))
+        return full_text
+    except Exception as exc:
+        logger.error("Error extracting text from PDF: %s", exc)
         return ""
 
 
@@ -68,55 +250,52 @@ async def index_paper_to_vector_db(
     file_name: str,
     pdf_content: bytes,
     token: str,
-    use_structured: bool = True
+    use_structured: bool = True,
 ):
-    """
-    将论文索引到向量数据库（后台任务）
-    
-    Args:
-        paper_id: 论文ID
-        title: 论文标题
-        file_name: 文件名
-        pdf_content: PDF二进制内容
-        token: 认证令牌
-        use_structured: 是否使用结构化解析（LLM 结构解析 + 递归语义切分）
-    """
+    """Index a paper into the vector search service."""
     try:
-        logger.info(f"Indexing paper: {paper_id} (structured={use_structured})")
-        
-        # 提取PDF文本
+        logger.info("Starting paper indexing: %s (structured=%s)", paper_id, use_structured)
+        _set_paper_status(
+            paper_id,
+            processing_status="indexing",
+            processing_error=None,
+            chunks_created=0,
+            indexed_at=None,
+        )
+
         content = await extract_text_from_pdf(pdf_content)
-        
         if not content or len(content) < 100:
-            logger.warning(f"Insufficient content extracted from {paper_id}, skipping indexing")
+            _set_paper_status(
+                paper_id,
+                processing_status="failed",
+                processing_error="Insufficient text extracted from PDF for indexing.",
+                chunks_created=0,
+                indexed_at=None,
+            )
+            logger.warning("Skipping indexing for %s because extracted text is insufficient", paper_id)
             return
-        
+
         index_request = {
             "paper_id": paper_id,
             "title": title,
             "file_name": file_name,
             "max_chunk_size": 1000,
         }
-        
+
         if use_structured:
-            # 结构化模式：LLM 解析 + 递归语义切分
             try:
                 from app.utils.paper_structure_parser import get_paper_structure_parser
                 from app.utils.recursive_semantic_chunker import chunk_structured_paper
-                
-                logger.info("Step 1: LLM 结构解析...")
+
                 parser = get_paper_structure_parser()
                 paper_structure = await parser.parse_structure(content)
-                
-                logger.info("Step 2: 递归语义切分...")
                 structured_chunks = chunk_structured_paper(
                     paper_structure=paper_structure.to_dict(),
                     max_chunk_size=1000,
                     min_chunk_size=100,
-                    chunk_overlap=100
+                    chunk_overlap=100,
                 )
-                
-                # 构建结构化索引请求
+
                 index_request["structured_chunks"] = [
                     {
                         "content": chunk.content,
@@ -127,162 +306,190 @@ async def index_paper_to_vector_db(
                         "hierarchy_path": chunk.hierarchy_path,
                         "char_count": chunk.char_count,
                         "is_complete_section": chunk.is_complete_section,
-                        "metadata": {}
+                        "metadata": {},
                     }
                     for chunk in structured_chunks
                 ]
                 index_request["paper_metadata"] = {
                     "title": paper_structure.title,
                     "authors": paper_structure.authors,
-                    "abstract": paper_structure.abstract[:500] if paper_structure.abstract else "",
-                    "references_count": paper_structure.references_count
+                    "abstract": (paper_structure.abstract or "")[:500],
+                    "references_count": paper_structure.references_count,
                 }
-                
-                logger.info(f"✓ 结构化解析完成: {len(structured_chunks)} chunks")
-                
-            except Exception as e:
-                logger.warning(f"结构化解析失败，回退到简单模式: {e}")
+                logger.info("Structured parsing succeeded for %s with %s chunks", paper_id, len(structured_chunks))
+            except Exception as exc:
+                logger.warning("Structured parsing failed for %s, falling back to plain content: %s", paper_id, exc)
                 index_request["content"] = content
         else:
-            # 简单模式
             index_request["content"] = content
-        
-        # 调用向量搜索服务的索引API
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(
-                f"{VECTOR_SEARCH_SERVICE_URL}/api/vector/index",
-                json=index_request,
-                headers={"Authorization": f"Bearer {token}"}
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                logger.info(f"✓ Paper indexed successfully: {paper_id}")
-                logger.info(f"  - Chunks: {result.get('chunks_created', 0)}")
-                if result.get('section_types'):
-                    logger.info(f"  - Section types: {result.get('section_types')}")
-            else:
-                logger.error(f"Failed to index paper {paper_id}: {response.status_code} - {response.text}")
-                
-    except Exception as e:
-        logger.error(f"Error indexing paper {paper_id}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
 
-router = APIRouter(prefix="/api/papers", tags=["论文存储"])
+        if "structured_chunks" not in index_request:
+            index_request["content"] = content
+
+        try:
+            async with httpx.AsyncClient(timeout=INDEX_REQUEST_TIMEOUT_SECONDS) as client:
+                response = await client.post(
+                    f"{VECTOR_SEARCH_SERVICE_URL}/api/vector/index",
+                    json=index_request,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+        except httpx.TimeoutException as exc:
+            if use_structured:
+                logger.warning(
+                    "Structured indexing timed out for %s after %ss, retrying in plain mode",
+                    paper_id,
+                    INDEX_REQUEST_TIMEOUT_SECONDS,
+                )
+                await index_paper_to_vector_db(
+                    paper_id=paper_id,
+                    title=title,
+                    file_name=file_name,
+                    pdf_content=pdf_content,
+                    token=token,
+                    use_structured=False,
+                )
+                return
+
+            _set_paper_status(
+                paper_id,
+                processing_status="failed",
+                processing_error=(
+                    f"Vector indexing timed out after {int(INDEX_REQUEST_TIMEOUT_SECONDS)} seconds. "
+                    "Please retry later."
+                ),
+                chunks_created=0,
+                indexed_at=None,
+            )
+            logger.error("Plain indexing timed out for %s: %s", paper_id, exc)
+            return
+
+        if response.status_code != 200:
+            error_message = _truncate_error(response.text or f"Indexing failed with HTTP {response.status_code}")
+            _set_paper_status(
+                paper_id,
+                processing_status="failed",
+                processing_error=error_message,
+                chunks_created=0,
+                indexed_at=None,
+            )
+            logger.error("Failed to index paper %s: %s - %s", paper_id, response.status_code, response.text)
+            return
+
+        result = response.json()
+        chunks_created = int(result.get("chunks_created", 0) or 0)
+        _set_paper_status(
+            paper_id,
+            processing_status="indexed",
+            processing_error=None,
+            chunks_created=chunks_created,
+            indexed_at=datetime.utcnow(),
+        )
+        logger.info("Paper indexed successfully: %s (chunks=%s)", paper_id, chunks_created)
+    except Exception as exc:
+        logger.exception("Error indexing paper %s", paper_id)
+        _set_paper_status(
+            paper_id,
+            processing_status="failed",
+            processing_error=_truncate_error(str(exc)),
+            chunks_created=0,
+            indexed_at=None,
+        )
+
+
+def _run_indexing_task(*, paper_id: str, title: str, file_name: str, pdf_content: bytes, token: str):
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(
+            index_paper_to_vector_db(
+                paper_id=paper_id,
+                title=title,
+                file_name=file_name,
+                pdf_content=pdf_content,
+                token=token,
+            )
+        )
+    except Exception:
+        logger.exception("Background indexing failed for %s", paper_id)
+        _set_paper_status(
+            paper_id,
+            processing_status="failed",
+            processing_error="Background indexing task crashed unexpectedly.",
+            chunks_created=0,
+            indexed_at=None,
+        )
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
 
 
 @router.post("/upload", response_model=PaperUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_paper(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = None,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """上传论文PDF文件（自动索引到向量数据库）"""
-    from fastapi import Request
-    from starlette.requests import Request as StarletteRequest
-    
-    # 验证文件类型
-    if not file.filename.endswith('.pdf'):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="只支持PDF文件"
-        )
-    
+    """Upload a PDF and start background vector indexing."""
+    file_name = file.filename or "paper.pdf"
+    if not file_name.lower().endswith(".pdf"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are supported.")
+
     try:
-        # 读取文件内容
         file_content = await file.read()
         file_size = len(file_content)
-        
-        # 生成唯一的对象名
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        object_name = f"{timestamp}_{file.filename}"
-        
-        # 上传到MinIO
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        object_name = f"{timestamp}_{file_name}"
+
         client = get_minio_client()
         ensure_bucket_exists(client, MINIO_BUCKET)
-        
-        from io import BytesIO
         client.put_object(
             MINIO_BUCKET,
             object_name,
-            BytesIO(file_content),
+            io.BytesIO(file_content),
             length=file_size,
-            content_type=file.content_type or "application/pdf"
+            content_type=file.content_type or "application/pdf",
         )
-        
-        # 保存元数据到数据库
+
         paper = Paper(
             user_id=current_user["id"],
             object_name=object_name,
-            original_name=file.filename,
+            original_name=file_name,
             file_size=file_size,
-            content_type=file.content_type or "application/pdf"
+            content_type=file.content_type or "application/pdf",
+            title=Path(file_name).stem,
+            processing_status="indexing",
+            processing_error=None,
+            chunks_created=0,
+            indexed_at=None,
         )
-        
         db.add(paper)
         db.commit()
         db.refresh(paper)
-        
-        logger.info(f"Paper uploaded: {object_name} by user {current_user['id']}")
-        
-        # 后台任务：索引到向量数据库
-        # 生成一个有效的token来调用向量搜索服务
-        from jose import jwt
-        from datetime import timedelta
-        
-        SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
-        expire = datetime.utcnow() + timedelta(hours=1)
-        token_data = {
-            "sub": current_user["username"],
-            "user_id": current_user["id"],
-            "is_active": current_user.get("is_active", True),
-            "is_superuser": current_user.get("is_superuser", False),
-            "exp": expire
-        }
-        temp_token = jwt.encode(token_data, SECRET_KEY, algorithm="HS256")
-        
-        # 启动后台索引任务（使用同步方式）
-        if background_tasks:
-            def sync_index_task():
-                import asyncio
-                try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(index_paper_to_vector_db(
-                        paper_id=object_name,
-                        title=file.filename.replace('.pdf', ''),
-                        file_name=file.filename,
-                        pdf_content=file_content,
-                        token=temp_token
-                    ))
-                    loop.close()
-                except Exception as e:
-                    logger.error(f"Background indexing failed: {e}")
-            
-            background_tasks.add_task(sync_index_task)
-            logger.info(f"Background indexing task started for: {object_name}")
-        
-        return PaperUploadResponse(
-            object_name=object_name,
-            original_name=file.filename,
-            size=file_size,
-            content_type=file.content_type or "application/pdf",
-            upload_time=paper.created_at.isoformat()
+
+        temp_token = _build_internal_token(current_user)
+        background_tasks.add_task(
+            _run_indexing_task,
+            paper_id=object_name,
+            title=paper.title or Path(file_name).stem,
+            file_name=file_name,
+            pdf_content=file_content,
+            token=temp_token,
         )
-        
-    except S3Error as e:
-        logger.error(f"MinIO error: {e}")
+
+        logger.info("Paper uploaded: %s by user %s", object_name, current_user["id"])
+        return _create_upload_response(paper)
+    except S3Error as exc:
+        logger.error("MinIO error while uploading %s: %s", file_name, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"文件上传失败: {str(e)}"
+            detail=f"Failed to upload file to object storage: {exc}",
         )
-    except Exception as e:
-        logger.error(f"Upload error: {e}")
+    except Exception as exc:
+        logger.exception("Upload error for %s", file_name)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"上传失败: {str(e)}"
+            detail=f"Failed to upload paper: {exc}",
         )
 
 
@@ -291,136 +498,210 @@ async def list_papers(
     skip: int = 0,
     limit: int = 50,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """获取用户的论文列表"""
+    """List current user's papers."""
     try:
-        # 查询总数
-        total = db.query(Paper).filter(Paper.user_id == current_user["id"]).count()
-        
-        # 查询论文列表
-        papers = db.query(Paper).filter(
-            Paper.user_id == current_user["id"]
-        ).order_by(Paper.created_at.desc()).offset(skip).limit(limit).all()
-        
-        return PaperListResponse(
-            total=total,
-            papers=[PaperInfo.from_orm(p) for p in papers]
-        )
-        
-    except Exception as e:
-        logger.error(f"List papers error: {e}")
+        _mark_stale_indexing_jobs(db)
+        query = db.query(Paper).filter(Paper.user_id == current_user["id"])
+        total = query.count()
+        papers = query.order_by(Paper.created_at.desc()).offset(skip).limit(limit).all()
+        return PaperListResponse(total=total, papers=[PaperInfo.from_orm(paper) for paper in papers])
+    except Exception as exc:
+        logger.exception("List papers error for user %s", current_user["id"])
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取列表失败: {str(e)}"
+            detail=f"Failed to list papers: {exc}",
         )
+
+
+@router.get("/stats", response_model=PaperStatsResponse)
+async def get_paper_stats(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return dashboard-friendly paper statistics for the current user."""
+    try:
+        _mark_stale_indexing_jobs(db)
+        now = datetime.utcnow()
+        month_start = _month_start(now)
+        query = db.query(Paper).filter(Paper.user_id == current_user["id"])
+        papers = query.all()
+
+        status_counts = {
+            "indexed": 0,
+            "indexing": 0,
+            "failed": 0,
+            "uploaded": 0,
+        }
+        field_distribution = {field: 0 for field in DASHBOARD_FIELDS}
+        uploaded_this_month = 0
+        indexed_this_month = 0
+
+        for paper in papers:
+            status_value = paper.processing_status or "uploaded"
+            if status_value in status_counts:
+                status_counts[status_value] += 1
+
+            if paper.created_at and paper.created_at >= month_start:
+                uploaded_this_month += 1
+            if paper.indexed_at and paper.indexed_at >= month_start:
+                indexed_this_month += 1
+
+            field_distribution[_classify_field(paper)] += 1
+
+        recent_papers = (
+            query.order_by(Paper.updated_at.desc(), Paper.created_at.desc())
+            .limit(10)
+            .all()
+        )
+        weekly_uploads = _format_weekly_counts([paper.created_at for paper in papers], now)
+
+        return PaperStatsResponse(
+            total=len(papers),
+            indexed=status_counts["indexed"],
+            indexing=status_counts["indexing"],
+            failed=status_counts["failed"],
+            uploaded=status_counts["uploaded"],
+            uploaded_this_month=uploaded_this_month,
+            indexed_this_month=indexed_this_month,
+            recent_papers=[PaperInfo.from_orm(paper) for paper in recent_papers],
+            weekly_uploads=weekly_uploads,
+            field_distribution=field_distribution,
+        )
+    except Exception as exc:
+        logger.exception("Paper stats error for user %s", current_user["id"])
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load paper stats: {exc}",
+        )
+
+
+@router.get("/status/{object_name}", response_model=PaperStatusResponse)
+async def get_paper_status(
+    object_name: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the latest indexing status for one uploaded paper."""
+    _mark_stale_indexing_jobs(db)
+    paper = db.query(Paper).filter(
+        Paper.object_name == object_name,
+        Paper.user_id == current_user["id"],
+    ).first()
+
+    if not paper:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found.")
+
+    return _build_status_response(paper)
+
+
+@router.patch("/rename/{object_name}", response_model=PaperInfo)
+async def rename_paper(
+    object_name: str,
+    payload: PaperRenameRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update the display name for a paper without changing its object id."""
+    paper = db.query(Paper).filter(
+        Paper.object_name == object_name,
+        Paper.user_id == current_user["id"],
+    ).first()
+    if not paper:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found.")
+
+    new_name = " ".join(payload.original_name.strip().split())
+    if not new_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Paper name cannot be empty.")
+    if not new_name.lower().endswith(".pdf"):
+        new_name = f"{new_name}.pdf"
+
+    paper.original_name = new_name
+    paper.title = Path(new_name).stem
+    db.commit()
+    db.refresh(paper)
+    logger.info("Paper renamed: %s -> %s by user %s", object_name, new_name, current_user["id"])
+    return PaperInfo.from_orm(paper)
 
 
 @router.get("/download/{object_name}")
 async def download_paper(
     object_name: str,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """下载论文文件"""
+    """Download a paper file."""
+    paper = db.query(Paper).filter(
+        Paper.object_name == object_name,
+        Paper.user_id == current_user["id"],
+    ).first()
+    if not paper:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found.")
+
     try:
-        # 验证权限
-        paper = db.query(Paper).filter(
-            Paper.object_name == object_name,
-            Paper.user_id == current_user["id"]
-        ).first()
-        
-        if not paper:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="论文不存在或无权访问"
-            )
-        
-        # 从MinIO下载
         client = get_minio_client()
         response = client.get_object(MINIO_BUCKET, object_name)
-        
         return StreamingResponse(
-            response.stream(32*1024),  # 32KB chunks
+            response.stream(32 * 1024),
             media_type=paper.content_type,
-            headers={
-                "Content-Disposition": f'attachment; filename="{paper.original_name}"'
-            }
+            headers={"Content-Disposition": f'attachment; filename="{paper.original_name}"'},
         )
-        
-    except S3Error as e:
-        logger.error(f"MinIO download error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="文件不存在"
-        )
-    except Exception as e:
-        logger.error(f"Download error: {e}")
+    except S3Error as exc:
+        logger.error("MinIO download error for %s: %s", object_name, exc)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper file not found.")
+    except Exception as exc:
+        logger.exception("Download error for %s", object_name)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"下载失败: {str(e)}"
+            detail=f"Failed to download paper: {exc}",
         )
 
 
 @router.get("/view/{object_name}")
 async def view_paper(
     object_name: str,
-    token: str = None,  # iframe无法发送header，需要通过URL参数传递token
-    db: Session = Depends(get_db)
+    token: str = None,
+    db: Session = Depends(get_db),
 ):
-    """在线预览论文 - 返回PDF文件供浏览器显示（支持iframe）"""
-    from jose import jwt, JWTError
-    import os
-    
-    SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
-    ALGORITHM = "HS256"
-    
+    """Return the PDF bytes for inline viewing."""
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token.")
+
     try:
-        # 验证token
-        if not token:
-            raise HTTPException(status_code=401, detail="需要token参数")
-        
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            user_id = payload.get("user_id")
-            if not user_id:
-                raise HTTPException(status_code=403, detail="无效的token")
-        except JWTError as e:
-            logger.error(f"Token验证失败: {e}")
-            raise HTTPException(status_code=403, detail="token验证失败")
-        
-        # 验证权限
-        paper = db.query(Paper).filter(
-            Paper.object_name == object_name,
-            Paper.user_id == user_id
-        ).first()
-        
-        if not paper:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="论文不存在或无权访问"
-            )
-        
-        # 从MinIO获取文件
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("user_id")
+    except Exception as exc:
+        logger.error("Token verification failed while viewing paper %s: %s", object_name, exc)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid token.")
+
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid token.")
+
+    paper = db.query(Paper).filter(
+        Paper.object_name == object_name,
+        Paper.user_id == user_id,
+    ).first()
+    if not paper:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found.")
+
+    try:
         client = get_minio_client()
         response = client.get_object(MINIO_BUCKET, object_name)
         pdf_data = response.read()
-        
-        # 返回PDF文件
-        from fastapi.responses import Response
         return Response(
             content=pdf_data,
             media_type="application/pdf",
-            headers={"Content-Disposition": f"inline; filename={paper.original_name}"}
+            headers={"Content-Disposition": f'inline; filename="{paper.original_name}"'},
         )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"View error: {e}")
+    except S3Error as exc:
+        logger.error("MinIO view error for %s: %s", object_name, exc)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper file not found.")
+    except Exception as exc:
+        logger.exception("View error for %s", object_name)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"预览失败: {str(e)}"
+            detail=f"Failed to view paper: {exc}",
         )
 
 
@@ -429,70 +710,96 @@ async def delete_paper(
     object_name: str,
     request: Request,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """删除论文（同时删除 Milvus 向量）"""
-    try:
-        # 验证权限
-        paper = db.query(Paper).filter(
-            Paper.object_name == object_name,
-            Paper.user_id == current_user["id"]
-        ).first()
-        
-        if not paper:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="论文不存在或无权访问"
-            )
-        
-        # 1. 从 Milvus 删除向量索引
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    """Delete a paper, including vector index and object storage."""
+    paper = db.query(Paper).filter(
+        Paper.object_name == object_name,
+        Paper.user_id == current_user["id"],
+    ).first()
+    if not paper:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found.")
+
+    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    if token:
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 vector_response = await client.delete(
                     f"{VECTOR_SEARCH_SERVICE_URL}/api/vector/delete/{object_name}",
-                    headers={"Authorization": f"Bearer {token}"}
+                    headers={"Authorization": f"Bearer {token}"},
                 )
-                if vector_response.status_code == 200:
-                    logger.info(f"✓ Milvus vectors deleted for: {object_name}")
-                else:
-                    logger.warning(f"Failed to delete Milvus vectors: {vector_response.status_code}")
-        except Exception as e:
-            logger.warning(f"Error deleting Milvus vectors: {e}")
-            # 继续删除 MinIO 和数据库记录
-        
-        # 2. 从 MinIO 删除文件
+            if vector_response.status_code == 200:
+                logger.info("Deleted vector index for %s", object_name)
+            else:
+                logger.warning("Vector delete returned %s for %s", vector_response.status_code, object_name)
+        except Exception as exc:
+            logger.warning("Failed to delete vectors for %s: %s", object_name, exc)
+
+    try:
         minio_client = get_minio_client()
         minio_client.remove_object(MINIO_BUCKET, object_name)
-        
-        # 3. 从数据库删除记录
         db.delete(paper)
         db.commit()
-        
-        logger.info(f"Paper deleted: {object_name} by user {current_user['id']}")
-        
+        logger.info("Paper deleted: %s by user %s", object_name, current_user["id"])
         return DeleteResponse(
             success=True,
-            message="删除成功（包括向量索引）",
-            object_name=object_name
+            message="Paper deleted successfully.",
+            object_name=object_name,
         )
-        
-    except S3Error as e:
-        logger.error(f"MinIO delete error: {e}")
+    except S3Error as exc:
+        logger.error("MinIO delete error for %s: %s", object_name, exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete paper file.")
+    except Exception as exc:
+        logger.exception("Delete error for %s", object_name)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="MinIO删除失败"
-        )
-    except Exception as e:
-        logger.error(f"Delete error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"删除失败: {str(e)}"
+            detail=f"Failed to delete paper: {exc}",
         )
 
 
 @router.get("/health")
 async def health_check():
-    """健康检查"""
+    """Health check."""
     return {"status": "healthy", "service": "paper-storage"}
 
+
+@router.get("/ready")
+async def readiness_check(db: Session = Depends(get_db)):
+    """Readiness check for dependencies required by paper upload and indexing."""
+    checks = {}
+    ready = True
+
+    try:
+        db.execute(text("SELECT 1"))
+        checks["database"] = {"status": "ok"}
+    except Exception as exc:
+        ready = False
+        logger.warning("Paper storage readiness database check failed: %s", exc)
+        checks["database"] = {
+            "status": "error",
+            "detail": _truncate_error(str(exc), 200),
+        }
+
+    try:
+        client = get_minio_client()
+        bucket_exists = client.bucket_exists(MINIO_BUCKET)
+        checks["object_storage"] = {
+            "status": "ok",
+            "bucket": MINIO_BUCKET,
+            "bucketExists": bucket_exists,
+        }
+    except Exception as exc:
+        ready = False
+        logger.warning("Paper storage readiness object storage check failed: %s", exc)
+        checks["object_storage"] = {
+            "status": "error",
+            "detail": _truncate_error(str(exc), 200),
+        }
+
+    body = {
+        "status": "ready" if ready else "not_ready",
+        "service": "paper-storage",
+        "checks": checks,
+    }
+    status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=status_code, content=body)

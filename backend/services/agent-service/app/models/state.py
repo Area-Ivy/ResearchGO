@@ -14,6 +14,12 @@ class Message(BaseModel):
     tool_call_id: Optional[str] = None
 
 
+class AttachedPaper(BaseModel):
+    """Conversation-level attached paper context."""
+    paper_id: str
+    name: str
+
+
 class ToolCall(BaseModel):
     """Tool call record"""
     id: str
@@ -47,6 +53,9 @@ class AgentState(TypedDict):
     # 认证 Token（用于调用其他服务）
     token: Optional[str]
     
+    # 当前会话附带的论文
+    attached_papers: List[Dict[str, str]]
+    
     # 工具调用记录
     tool_calls: List[ToolCall]
     
@@ -65,12 +74,19 @@ class AgentState(TypedDict):
     # 思考过程（用于流式输出）
     thoughts: List[str]
 
+    prepared_messages: List[dict]
+    summary: Optional[str]
+    memory_context: Optional[str]
+    draft_answer: Optional[str]
+    tool_outcome: Optional[str]
+
 
 class ChatRequest(BaseModel):
     """聊天请求"""
     message: str
     conversation_id: Optional[str] = None
     stream: bool = True
+    attached_papers: List[AttachedPaper] = []
 
 
 class ChatResponse(BaseModel):

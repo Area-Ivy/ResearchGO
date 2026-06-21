@@ -5,7 +5,9 @@ from .conversation import (
     ConversationUpdate,
     ConversationResponse,
     ConversationDetailResponse,
-    ConversationListResponse
+    ConversationListResponse,
+    ConversationStatsResponse,
+    WeeklyCount,
 )
 
 __all__ = [
@@ -15,6 +17,8 @@ __all__ = [
     "ConversationUpdate",
     "ConversationResponse",
     "ConversationDetailResponse",
-    "ConversationListResponse"
+    "ConversationListResponse",
+    "ConversationStatsResponse",
+    "WeeklyCount",
 ]
 

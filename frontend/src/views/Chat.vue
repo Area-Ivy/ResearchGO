@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="chat-page">
     <!-- History Sidebar -->
     <aside class="chat-sidebar" :class="{ 'sidebar-open': sidebarOpen }">
@@ -70,29 +70,83 @@
           </svg>
         </button>
         <div class="header-section">
-          <h1 class="page-title">
+          <p class="eyebrow">Chat</p>
+          <h1>
             {{ currentConversation?.title || 'AI Research Assistant' }}
           </h1>
-          <p class="page-subtitle">Ask me anything about your research</p>
+          <p class="subtitle">Ask me anything about your research.</p>
         </div>
-        <div class="header-actions">
-          <!-- 预留操作按钮位置 -->
+        <div class="header-actions compact-attachments">
+          <button class="header-action-btn secondary memory-header-btn" type="button" @click="openMemoryEditor">
+            <span>Memory</span>
+          </button>
+          <div v-if="attachedPapers.length > 0" class="header-attachments-control">
+            <button class="header-attachment-trigger" @click="showAttachedPapersMenu = !showAttachedPapersMenu">
+              <span class="header-attachment-trigger-label">Attached</span>
+              <span class="header-attachment-count">{{ attachedPapers.length }}</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div v-if="showAttachedPapersMenu" class="header-attachments-menu">
+              <div class="header-attachments-menu-title">Attached papers</div>
+              <div class="header-attachments-menu-list">
+                <div
+                  v-for="paper in attachedPapers"
+                  :key="paper.paper_id"
+                  class="header-attachment-item"
+                >
+                  <span class="header-attachment-name">{{ paper.name }}</span>
+                  <button class="header-attachment-remove" @click="removeAttachedPaper(paper.paper_id)">Remove</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
+    <input
+      ref="paperUploadInput"
+      type="file"
+      accept=".pdf"
+      class="paper-upload-input"
+      @change="handlePaperUpload"
+    >
+
+    <div
+      v-if="paperUploadNotice"
+      class="paper-upload-notice"
+      :class="paperUploadNoticeType"
+    >
+      {{ paperUploadNotice }}
+    </div>
+
     <div class="chat-messages" ref="messagesContainer">
       <div v-if="messages.length === 0" class="empty-state">
-        <div class="empty-icon">
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-          </svg>
+        <div class="ai-logo-stage" aria-hidden="true">
+          <div class="logo-halo halo-1"></div>
+          <div class="logo-halo halo-2"></div>
+          <div class="logo-orbit orbit-a"><span></span></div>
+          <div class="logo-orbit orbit-b"><span></span></div>
+          <div class="logo-orbit orbit-c"><span></span></div>
+          <div class="logo-particles">
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div class="empty-icon">
+            <svg width="78" height="78" viewBox="0 0 80 80" fill="none" aria-hidden="true">
+              <circle class="core-ring" cx="40" cy="40" r="23" />
+              <circle class="core-ring core-ring-inner" cx="40" cy="40" r="14" />
+              <path class="core-arc" d="M28 47C31.6 53 38.8 56.2 46 54.6C53.2 53 58.6 46.7 59 39.4" />
+              <path class="core-arc core-arc-secondary" d="M52 33C48.4 27 41.2 23.8 34 25.4C26.8 27 21.4 33.3 21 40.6" />
+              <circle class="core-pulse" cx="40" cy="40" r="6.5" />
+            </svg>
+          </div>
+          <div class="logo-reflection"></div>
         </div>
-        <h3>Start a Conversation</h3>
-        <p>Ask me about research papers, concepts, or anything else you'd like to know.</p>
-        <div class="suggested-prompts">
-          <button v-for="prompt in suggestedPrompts" :key="prompt" class="prompt-btn" @click="sendSuggestedPrompt(prompt)">
-            {{ prompt }}
-          </button>
+        <div class="empty-copy">
+          <div class="empty-kicker">ResearchGO Neural Core</div>
+          <h3>Start a Conversation</h3>
+          <p>Ask me about research papers, concepts, or anything else you'd like to know.</p>
         </div>
       </div>
 
@@ -113,7 +167,45 @@
             <span class="message-role">{{ message.role === 'user' ? 'You' : 'AI Assistant' }}</span>
             <span class="message-time">{{ message.time }}</span>
           </div>
-          <div class="message-text" v-html="message.content"></div>
+          <div v-if="message.analyses?.length" class="message-analyses">
+            <div v-for="analysis in message.analyses" :key="analysis.id" class="analysis-card">
+              <div class="analysis-card-header">
+                <div class="analysis-card-meta">
+                  <div class="analysis-card-kicker">结构化分析</div>
+                  <div class="analysis-card-title">{{ analysis.data.title || analysis.title || '论文分析报告' }}</div>
+                </div>
+              </div>
+              <div class="analysis-card-body">
+                <div
+                  v-for="section in buildAnalysisSections(analysis.data)"
+                  :key="section.key"
+                  class="analysis-section"
+                  :class="{ highlight: section.highlight }"
+                >
+                  <div class="section-header">
+                    <h4>{{ section.label }}</h4>
+                  </div>
+                  <p class="section-content" :class="{ 'highlight-title': section.key === 'title' }">
+                    {{ section.value }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="message.content" class="message-text" v-html="message.content"></div>
+          <div v-if="message.mindmaps?.length" class="message-mindmaps">
+            <div v-for="mindmap in message.mindmaps" :key="mindmap.id" class="mindmap-card">
+              <div class="mindmap-card-header">
+                <div class="mindmap-card-meta">
+                  <div class="mindmap-card-title">思维导图</div>
+                  <div class="mindmap-card-subtitle">{{ mindmap.title }}</div>
+                </div>
+              </div>
+              <div class="mindmap-card-body">
+                <div :id="mindmap.id" class="chat-jsmind-container"></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -129,6 +221,9 @@
           <div class="message-header">
             <span class="message-role">AI Assistant</span>
           </div>
+          <div v-if="activeToolCall" class="tool-call-status">
+            Calling tool: {{ activeToolCall }}
+          </div>
           <div class="typing-indicator">
             <span></span>
             <span></span>
@@ -140,6 +235,23 @@
 
     <div class="chat-input-container">
       <div class="chat-input-wrapper">
+        <div class="input-plus-menu">
+          <button
+            class="plus-btn"
+            :disabled="isUploadingPaper || paperLibraryLoading"
+            @click="showInputActions = !showInputActions"
+          >
+            +
+          </button>
+          <div v-if="showInputActions" class="input-actions-popover">
+            <button class="input-action-item" @click="triggerPaperUploadAndClose">
+              {{ isUploadingPaper ? 'Uploading...' : 'Upload Paper' }}
+            </button>
+            <button class="input-action-item" @click="openPaperLibraryFromInput">
+              {{ paperLibraryLoading ? 'Loading...' : 'Select Paper' }}
+            </button>
+          </div>
+        </div>
         <textarea 
           v-model="inputMessage" 
           @keydown.enter.exact.prevent="sendMessage"
@@ -165,6 +277,99 @@
 
     </div>
   </div>
+
+  <div
+    v-if="paperLibraryOpen"
+    class="paper-library-overlay"
+    @click.self="paperLibraryOpen = false"
+  >
+    <div class="paper-library-modal">
+      <div class="paper-library-header">
+        <div>
+          <h3>My Papers</h3>
+          <p>Select a paper to attach to this conversation</p>
+        </div>
+        <button class="paper-library-close" @click="paperLibraryOpen = false">Close</button>
+      </div>
+      <div v-if="paperLibraryError" class="paper-library-error">{{ paperLibraryError }}</div>
+      <div v-if="paperLibraryNotice" class="paper-library-notice">{{ paperLibraryNotice }}</div>
+      <div v-if="paperLibraryLoading" class="paper-library-empty">Loading papers...</div>
+      <div v-else-if="availablePapers.length === 0" class="paper-library-empty">
+        No uploaded papers yet.
+      </div>
+      <div v-else class="paper-library-list">
+        <button
+          v-for="paper in availablePapers"
+          :key="paper.object_name"
+          class="paper-library-item"
+          :class="{ disabled: !isPaperReady(paper) }"
+          :disabled="!isPaperReady(paper)"
+          @click="attachLibraryPaper(paper)"
+        >
+          <div class="paper-library-title">{{ paper.title || paper.original_name }}</div>
+          <div class="paper-library-subtitle">{{ paper.original_name }}</div>
+          <div class="paper-library-status-row">
+            <span class="paper-library-status-badge" :class="paper.processing_status">
+              {{ formatPaperProcessingStatus(paper.processing_status) }}
+            </span>
+            <span class="paper-library-status-text">{{ getPaperStatusDetail(paper) }}</span>
+          </div>
+          <div class="paper-library-id">{{ paper.object_name }}</div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div
+    v-if="memoryEditorOpen"
+    class="memory-editor-overlay"
+    @click.self="closeMemoryEditor"
+  >
+    <div class="memory-editor-modal">
+      <div class="memory-editor-header">
+        <div>
+          <h3>Memory</h3>
+          <p>{{ memoryFileName }}<span v-if="memoryUpdatedAt"> · Updated {{ formatMemoryDate(memoryUpdatedAt) }}</span></p>
+        </div>
+        <button class="paper-library-close" type="button" @click="closeMemoryEditor">Close</button>
+      </div>
+
+      <div v-if="memoryError" class="memory-editor-state error">{{ memoryError }}</div>
+      <div v-else-if="memoryNotice" class="memory-editor-state success">{{ memoryNotice }}</div>
+
+      <div class="memory-editor-body">
+        <div v-if="memoryLoading" class="memory-editor-loading">
+          <span class="spinner"></span>
+          <span>Loading memory...</span>
+        </div>
+        <textarea
+          v-else
+          v-model="memoryContent"
+          class="memory-editor-textarea"
+          spellcheck="false"
+          aria-label="Memory markdown"
+        ></textarea>
+      </div>
+
+      <div class="memory-editor-footer">
+        <div class="memory-editor-stats">
+          <span>{{ memoryLineCount }} lines</span>
+          <span>{{ memoryByteCount }} bytes</span>
+        </div>
+        <div class="memory-editor-actions">
+          <button class="header-action-btn secondary" type="button" :disabled="memoryLoading || memorySaving" @click="loadMemoryDocumentForEditor">
+            Revert
+          </button>
+          <button class="header-action-btn danger" type="button" :disabled="memoryLoading || memorySaving" @click="clearMemoryEditor">
+            Clear
+          </button>
+          <button class="header-action-btn" type="button" :disabled="memoryLoading || memorySaving" @click="saveMemoryEditor">
+            {{ memorySaving ? 'Saving' : 'Save' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script>
@@ -174,13 +379,15 @@ export default {
 </script>
 
 <script setup>
-import { ref, nextTick, onMounted, watch } from 'vue'
+import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import katex from 'katex'
 import hljs from 'highlight.js'
+import jsMind from 'jsmind'
 import 'highlight.js/styles/atom-one-dark.css'
 import 'katex/dist/katex.min.css'
+import 'jsmind/style/jsmind.css'
 import { API_ENDPOINTS } from '../config'
 import {
   createConversation,
@@ -190,6 +397,8 @@ import {
   deleteConversation,
   updateConversation
 } from '../api/conversations'
+import { listPapers, uploadPaper } from '../api/papers'
+import { clearMemoryDocument, getMemoryDocument, saveMemoryDocument } from '../api/memory'
 
 const route = useRoute()
 
@@ -212,21 +421,145 @@ marked.setOptions({
 const messages = ref([])
 const inputMessage = ref('')
 const isLoading = ref(false)
+const activeToolCall = ref('')
 const messagesContainer = ref(null)
 const inputTextarea = ref(null)
+const paperUploadInput = ref(null)
 const error = ref(null)
 
-// 对话管理相关状态
 const conversations = ref([])
 const currentConversation = ref(null)
 const sidebarOpen = ref(false)
+const attachedPapers = ref([])
+const availablePapers = ref([])
+const paperLibraryOpen = ref(false)
+const paperLibraryLoading = ref(false)
+const paperLibraryError = ref('')
+const paperLibraryNotice = ref('')
+const isUploadingPaper = ref(false)
+const showInputActions = ref(false)
+const showAttachedPapersMenu = ref(false)
+const paperUploadNotice = ref('')
+const paperUploadNoticeType = ref('info')
+const memoryEditorOpen = ref(false)
+const memoryContent = ref('')
+const memoryFileName = ref('memory.md')
+const memoryUpdatedAt = ref(null)
+const memoryLoading = ref(false)
+const memorySaving = ref(false)
+const memoryError = ref('')
+const memoryNotice = ref('')
+let paperLibraryPollTimer = null
+const ATTACHED_PAPERS_STORAGE_KEY = 'researchgo_chat_attached_papers'
+const chatMindmapInstances = new Map()
+const DEFAULT_CONVERSATION_TITLE = '新对话'
+const ANALYSIS_SECTION_CONFIG = [
+  { key: 'title', label: '标题' },
+  { key: 'abstract', label: '摘要' },
+  { key: 'research_background', label: '研究背景' },
+  { key: 'research_problem', label: '研究问题' },
+  { key: 'methodology', label: '方法论' },
+  { key: 'key_findings', label: '关键发现', highlight: true },
+  { key: 'innovations', label: '创新点', highlight: true },
+  { key: 'limitations', label: '局限性' },
+  { key: 'future_work', label: '未来工作' },
+  { key: 'conclusion', label: '结论' }
+]
 
-const suggestedPrompts = ref([
-  'Explain transformer architecture',
-  'Summarize recent advances in LLMs',
-  'How does attention mechanism work?',
-  'Compare CNNs and Vision Transformers'
-])
+const memoryLineCount = computed(() => (memoryContent.value ? memoryContent.value.split('\n').length : 0))
+const memoryByteCount = computed(() => new Blob([memoryContent.value]).size)
+
+const setMemoryDocument = (document) => {
+  memoryContent.value = document.content || ''
+  memoryFileName.value = document.file_name || 'memory.md'
+  memoryUpdatedAt.value = document.updated_at || null
+}
+
+const formatMemoryDate = (value) => {
+  if (!value) return ''
+  return new Date(value).toLocaleString()
+}
+
+const loadMemoryDocumentForEditor = async () => {
+  memoryLoading.value = true
+  memoryError.value = ''
+  memoryNotice.value = ''
+  try {
+    setMemoryDocument(await getMemoryDocument())
+  } catch (err) {
+    memoryError.value = err.response?.data?.detail || 'Failed to load memory.'
+  } finally {
+    memoryLoading.value = false
+  }
+}
+
+const openMemoryEditor = async () => {
+  memoryEditorOpen.value = true
+  await loadMemoryDocumentForEditor()
+}
+
+const closeMemoryEditor = () => {
+  memoryEditorOpen.value = false
+}
+
+const saveMemoryEditor = async () => {
+  memorySaving.value = true
+  memoryError.value = ''
+  memoryNotice.value = ''
+  try {
+    setMemoryDocument(await saveMemoryDocument(memoryContent.value))
+    memoryNotice.value = 'Saved.'
+  } catch (err) {
+    memoryError.value = err.response?.data?.detail || 'Failed to save memory.'
+  } finally {
+    memorySaving.value = false
+  }
+}
+
+const clearMemoryEditor = async () => {
+  if (!window.confirm('Clear memory?')) return
+  memorySaving.value = true
+  memoryError.value = ''
+  memoryNotice.value = ''
+  try {
+    setMemoryDocument(await clearMemoryDocument())
+    memoryNotice.value = 'Cleared.'
+  } catch (err) {
+    memoryError.value = err.response?.data?.detail || 'Failed to clear memory.'
+  } finally {
+    memorySaving.value = false
+  }
+}
+
+const buildConversationTitle = (text) => {
+  const normalizedText = (text || '').replace(/\s+/g, ' ').trim()
+  if (!normalizedText) return DEFAULT_CONVERSATION_TITLE
+  return normalizedText.substring(0, 30) + (normalizedText.length > 30 ? '...' : '')
+}
+
+const getFirstUserMessageContent = (conversation) => {
+  const firstUserMessage = conversation?.messages?.find(message => message.role === 'user')
+  return firstUserMessage?.content || ''
+}
+
+const hydrateConversationTitle = async (conversation) => {
+  if (!conversation?.id || conversation.title !== DEFAULT_CONVERSATION_TITLE) {
+    return conversation
+  }
+
+  try {
+    const detail = await getConversation(conversation.id)
+    const title = buildConversationTitle(getFirstUserMessageContent(detail))
+
+    if (title !== DEFAULT_CONVERSATION_TITLE) {
+      conversation.title = title
+    }
+  } catch (err) {
+    console.error('加载对话标题失败:', err)
+  }
+
+  return conversation
+}
 
 // Render LaTeX with KaTeX
 const renderLatex = (text) => {
@@ -312,264 +645,786 @@ const renderLatex = (text) => {
   return text
 }
 
-// 渲染论文卡片
+// 娓叉煋璁烘枃鍗＄墖
 const renderPapersCards = (papersData) => {
   const { query, total, papers } = papersData
   
   if (!papers || papers.length === 0) {
-    return `<div class="papers-empty">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-        <polyline points="14 2 14 8 20 8"></polyline>
-      </svg>
-      <p>未找到相关论文</p>
-    </div>`
+    return `<p>未找到与 “${escapeHtml(query || '')}” 相关的论文。</p>`
   }
   
-  // 格式化引用数
   const formatCitations = (num) => {
     if (num >= 10000) return (num / 1000).toFixed(1) + 'K'
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
     return num
   }
-  
-  let html = `<div class="papers-container">`
-  html += `<div class="papers-header">
-    <div class="papers-header-left">
-      <div class="papers-icon-wrapper">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
-        </svg>
-      </div>
-      <div class="papers-header-text">
-        <span class="papers-count">${total || papers.length}</span>
-        <span class="papers-label">篇相关论文</span>
-      </div>
-    </div>
-    <div class="papers-query-badge">
-      <span class="query-indicator"></span>
-      <span>${query}</span>
-    </div>
-  </div>`
-  
-  html += `<div class="papers-grid">`
-  
-  for (let i = 0; i < Math.min(papers.length, 6); i++) {
-    const paper = papers[i]
-    const authors = paper.authors ? paper.authors.slice(0, 2).join(', ') + (paper.authors.length > 2 ? ' et al.' : '') : 'Unknown'
-    const year = paper.year || 'N/A'
-    const citations = paper.cited_by_count || 0
-    const isOpenAccess = paper.open_access
-    const abstract = paper.abstract ? paper.abstract.substring(0, 120) + '...' : ''
-    const doi = paper.doi || ''
-    
-    // 根据引用数决定热度等级
-    let hotLevel = ''
-    if (citations > 1000) hotLevel = 'hot-fire'
-    else if (citations > 100) hotLevel = 'hot-warm'
-    
-    html += `
-      <div class="paper-card ${hotLevel}" style="animation-delay: ${i * 0.05}s">
-        <div class="paper-card-glow"></div>
-        <div class="paper-card-inner">
-          <div class="paper-card-header">
-            <div class="paper-badges">
-              ${isOpenAccess ? '<span class="paper-badge paper-badge-oa"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> Open</span>' : ''}
-              ${hotLevel === 'hot-fire' ? '<span class="paper-badge paper-badge-hot">🔥 High Impact</span>' : ''}
-            </div>
-            <span class="paper-year-badge">${year}</span>
-          </div>
-          <h4 class="paper-title">${paper.title || 'Untitled'}</h4>
-          <p class="paper-authors">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-              <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-            ${authors}
-          </p>
-          ${abstract ? `<p class="paper-abstract">${abstract}</p>` : ''}
-          <div class="paper-footer">
-            <div class="paper-stats">
-              <div class="stat-item">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M3 3v18h18"></path>
-                  <path d="m19 9-5 5-4-4-3 3"></path>
-                </svg>
-                <span class="stat-value">${formatCitations(citations)}</span>
-                <span class="stat-label">引用</span>
-              </div>
-            </div>
-            ${doi ? `<a href="${doi}" target="_blank" class="paper-link">
-              <span>查看详情</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                <polyline points="15 3 21 3 21 9"></polyline>
-                <line x1="10" y1="14" x2="21" y2="3"></line>
-              </svg>
-            </a>` : ''}
-          </div>
-        </div>
-      </div>
+
+  const itemsHtml = papers.slice(0, 6).map((paper, index) => {
+    const title = escapeHtml(paper.title || 'Untitled')
+    const authors = escapeHtml(
+      paper.authors ? paper.authors.slice(0, 3).join(', ') + (paper.authors.length > 3 ? ' et al.' : '') : 'Unknown'
+    )
+    const year = escapeHtml(paper.year || 'N/A')
+    const citations = formatCitations(paper.cited_by_count || 0)
+    const abstract = paper.abstract ? `<div>${escapeHtml(paper.abstract.substring(0, 180))}${paper.abstract.length > 180 ? '...' : ''}</div>` : ''
+    const detailLink = paper.doi
+      ? ` <a href="${escapeHtml(paper.doi)}" target="_blank" rel="noopener noreferrer">查看详情</a>`
+      : ''
+
+    return `
+      <li>
+        <strong>${index + 1}. ${title}</strong><br>
+        <span>${authors} · ${year} · 引用 ${citations}</span>
+        ${abstract}
+        ${detailLink}
+      </li>
     `
+  }).join('')
+
+  const moreHtml = papers.length > 6
+    ? `<p>还有 ${papers.length - 6} 篇结果未显示。</p>`
+    : ''
+
+  return `
+    <div>
+      <p>找到 <strong>${escapeHtml(total || papers.length)}</strong> 篇与 “${escapeHtml(query || '')}” 相关的论文：</p>
+      <ol>${itemsHtml}</ol>
+      ${moreHtml}
+    </div>
+  `
+}
+const escapeHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
+
+const stripMindmapPlaceholderLinks = (text) => {
+  const normalized = String(text ?? '')
+  return normalized
+    .replace(/!\[[^\]]*\]\(\s*https?:\/\/image\.pollinations\.ai\/prompt\/[^)\s]+(?:\s+"[^"]*")?\s*\)/gi, '')
+    .replace(/\(\s*https?:\/\/image\.pollinations\.ai\/prompt\/[^)\s]+\s*\)/gi, '')
+    .replace(/https?:\/\/image\.pollinations\.ai\/prompt\/\S+/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+const MINDMAP_ARTIFACT_REGEX = /<!--RESEARCHGO_MINDMAP:(.+?)-->/gs
+const ANALYSIS_ARTIFACT_REGEX = /<!--RESEARCHGO_ANALYSIS:(.+?)-->/gs
+
+const decodeBase64Utf8 = (value) => {
+  try {
+    const binary = atob(value)
+    const bytes = Uint8Array.from(binary, char => char.charCodeAt(0))
+    return new TextDecoder().decode(bytes)
+  } catch (err) {
+    console.error('Failed to decode base64 artifact:', err)
+    return ''
   }
-  
-  html += `</div>`
-  
-  // 如果论文数量超过6篇，显示查看更多提示
-  if (papers.length > 6) {
-    html += `<div class="papers-more">
-      <span>还有 ${papers.length - 6} 篇论文未显示</span>
-    </div>`
+}
+
+const parseStoredAssistantArtifacts = (text) => {
+  const rawText = String(text ?? '')
+  const mindmaps = []
+  const analyses = []
+
+  rawText.replace(MINDMAP_ARTIFACT_REGEX, (_, payload) => {
+    try {
+      const decoded = decodeBase64Utf8(payload.trim())
+      const parsed = JSON.parse(decoded)
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          const mindmapData = item?.mindmap_data
+          if (!mindmapData) continue
+          mindmaps.push({
+            id: `chat-mindmap-history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            paperId: item?.paper_id || 'unknown-paper',
+            title: mindmapData?.data?.topic || '论文思维导图',
+            data: mindmapData
+          })
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse stored mindmap artifact:', err)
+    }
+    return ''
+  })
+
+  rawText.replace(ANALYSIS_ARTIFACT_REGEX, (_, payload) => {
+    try {
+      const decoded = decodeBase64Utf8(payload.trim())
+      const parsed = JSON.parse(decoded)
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          const analysis = item?.analysis
+          if (!analysis) continue
+          analyses.push({
+            id: `chat-analysis-history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            paperId: item?.paper_id || 'unknown-paper',
+            title: analysis?.title || '论文分析报告',
+            data: analysis
+          })
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse stored analysis artifact:', err)
+    }
+    return ''
+  })
+
+  const cleanedText = rawText
+    .replace(MINDMAP_ARTIFACT_REGEX, '')
+    .replace(ANALYSIS_ARTIFACT_REGEX, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return { cleanedText, mindmaps, analyses }
+}
+
+const renderAssistantTextHtml = (text) => {
+  const cleaned = stripMindmapPlaceholderLinks(text)
+  return cleaned ? marked(renderLatex(cleaned)) : ''
+}
+
+const normalizeConversationMessage = (msg) => {
+  if (msg.role === 'user') {
+    return {
+      role: 'user',
+      content: msg.content,
+      time: formatMessageTime(msg.created_at)
+    }
   }
-  
-  html += `</div>`
-  return html
+
+  const { cleanedText, mindmaps, analyses } = parseStoredAssistantArtifacts(msg.content)
+  const parsedAnalysis = analyses.length ? null : extractAnalysisFromText(cleanedText)
+  const normalizedAnalyses = analyses.length
+    ? analyses
+    : (parsedAnalysis ? [{
+        id: `chat-analysis-text-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        paperId: 'text-derived',
+        title: parsedAnalysis.title || '论文分析报告',
+        data: parsedAnalysis
+      }] : [])
+  const textHtml = (mindmaps.length || normalizedAnalyses.length) ? '' : renderAssistantTextHtml(cleanedText)
+  const artifactsHtml = ''
+
+  return {
+    role: 'assistant',
+    rawContent: cleanedText,
+    textHtml,
+    artifactsHtml,
+    mindmaps,
+    analyses: normalizedAnalyses,
+    content: `${textHtml}${artifactsHtml}`,
+    time: formatMessageTime(msg.created_at)
+  }
+}
+
+const buildAssistantMessageContent = (message) => {
+  if (message.mindmaps?.length || message.analyses?.length) {
+    return ''
+  }
+  return `${message.textHtml || ''}${message.artifactsHtml || ''}`
+}
+
+const syncAssistantMessageContent = (index) => {
+  if (index === -1 || !messages.value[index]) return
+  const message = messages.value[index]
+  if (!message.analyses?.length) {
+    const parsedAnalysis = extractAnalysisFromText(message.rawContent || '')
+    if (parsedAnalysis) {
+      message.analyses = [{
+        id: `chat-analysis-live-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        paperId: 'text-derived',
+        title: parsedAnalysis.title || '论文分析报告',
+        data: parsedAnalysis
+      }]
+    }
+  }
+  messages.value[index].content = buildAssistantMessageContent(messages.value[index])
+}
+
+const ensureAssistantMessage = () => {
+  let assistantMessageIndex = messages.value.length - 1
+  const lastMessage = messages.value[assistantMessageIndex]
+  if (lastMessage?.role === 'assistant') {
+    return assistantMessageIndex
+  }
+
+  assistantMessageIndex = messages.value.length
+  messages.value.push({
+    role: 'assistant',
+    content: '',
+    rawContent: '',
+    textHtml: '',
+    artifactsHtml: '',
+    mindmaps: [],
+    analyses: [],
+    time: getCurrentTime()
+  })
+  return assistantMessageIndex
+}
+
+const appendAssistantArtifact = (index, html) => {
+  if (index === -1 || !messages.value[index]) return
+  messages.value[index].artifactsHtml = (messages.value[index].artifactsHtml || '') + html
+  syncAssistantMessageContent(index)
+}
+
+const appendAssistantMindmap = async (index, mindmapPayload) => {
+  if (index === -1 || !messages.value[index]) return
+
+  const mindmapData = mindmapPayload?.mindmap_data
+  if (!mindmapData) return
+
+  const paperId = mindmapPayload?.paper_id || 'unknown-paper'
+  const existing = (messages.value[index].mindmaps || []).find(item => item.paperId === paperId)
+  if (existing) {
+    existing.data = mindmapData
+    await renderChatMindmap(existing.id, mindmapData)
+    return
+  }
+
+  const mindmapId = `chat-mindmap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const title = mindmapData?.data?.topic || '论文思维导图'
+  const nextMindmaps = [
+    ...(messages.value[index].mindmaps || []),
+    { id: mindmapId, paperId, title, data: mindmapData }
+  ]
+  messages.value[index].mindmaps = nextMindmaps
+  await nextTick()
+  await renderChatMindmap(mindmapId, mindmapData)
+}
+
+const appendAssistantAnalysis = (index, analysisPayload) => {
+  if (index === -1 || !messages.value[index]) return
+
+  const analysisData = analysisPayload?.analysis
+  if (!analysisData) return
+
+  const paperId = analysisPayload?.paper_id || 'unknown-paper'
+  const existing = (messages.value[index].analyses || []).find(item => item.paperId === paperId)
+  if (existing) {
+    existing.data = analysisData
+    existing.title = analysisData?.title || existing.title
+    syncAssistantMessageContent(index)
+    return
+  }
+
+  const nextAnalyses = [
+    ...(messages.value[index].analyses || []),
+    {
+      id: `chat-analysis-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      paperId,
+      title: analysisData?.title || '论文分析报告',
+      data: analysisData
+    }
+  ]
+  messages.value[index].analyses = nextAnalyses
+  syncAssistantMessageContent(index)
+}
+
+const buildAnalysisSections = (analysis) => ANALYSIS_SECTION_CONFIG
+  .map(section => ({
+    ...section,
+    value: analysis?.[section.key]
+  }))
+  .filter(section => {
+    const value = section.value
+    return typeof value === 'string' ? value.trim() : Boolean(value)
+  })
+
+const ANALYSIS_TEXT_PATTERNS = [
+  { key: 'title', patterns: ['标题', '题目'] },
+  { key: 'abstract', patterns: ['摘要'] },
+  { key: 'research_background', patterns: ['研究背景', '背景'] },
+  { key: 'research_problem', patterns: ['研究问题', '问题'] },
+  { key: 'methodology', patterns: ['方法论', '研究方法', '方法'] },
+  { key: 'key_findings', patterns: ['关键发现', '主要发现', '研究发现'] },
+  { key: 'innovations', patterns: ['创新点', '创新'] },
+  { key: 'limitations', patterns: ['局限性', '局限'] },
+  { key: 'future_work', patterns: ['未来工作', '未来研究', '展望'] },
+  { key: 'conclusion', patterns: ['结论'] }
+]
+
+const cleanAnalysisValue = (value) => String(value || '')
+  .replace(/^[\s•\-*]+/, '')
+  .replace(/\*\*/g, '')
+  .replace(/<[^>]+>/g, '')
+  .trim()
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const extractAnalysisFromText = (text) => {
+  const source = String(text || '').replace(/\r/g, '')
+  if (!source.trim()) return null
+
+  const extracted = {}
+
+  for (let index = 0; index < ANALYSIS_TEXT_PATTERNS.length; index += 1) {
+    const current = ANALYSIS_TEXT_PATTERNS[index]
+    const next = ANALYSIS_TEXT_PATTERNS[index + 1]
+    const currentLabel = current.patterns.map(escapeRegex).join('|')
+    const nextLabel = next ? next.patterns.map(escapeRegex).join('|') : null
+    const pattern = nextLabel
+      ? new RegExp(`(?:^|\\n)[\\s>*-]*?(?:${currentLabel})\\s*[：:：]\\s*([\\s\\S]*?)(?=(?:\\n[\\s>*-]*?(?:${nextLabel})\\s*[：:：])|$)`, 'i')
+      : new RegExp(`(?:^|\\n)[\\s>*-]*?(?:${currentLabel})\\s*[：:：]\\s*([\\s\\S]*?)$`, 'i')
+    const match = source.match(pattern)
+    if (match?.[1]) {
+      extracted[current.key] = cleanAnalysisValue(match[1])
+    }
+  }
+
+  const filledKeys = Object.values(extracted).filter(Boolean)
+  if (filledKeys.length < 4) return null
+  return extracted
+}
+
+const addChatMindmapDragAndZoom = (container) => {
+  if (!container || container.dataset.dragZoomBound === 'true') return
+
+  let scale = 1
+  const jsmindInner = container.querySelector('.jsmind-inner')
+  if (!jsmindInner) return
+
+  container.dataset.dragZoomBound = 'true'
+  jsmindInner.style.transformOrigin = '0 0'
+  jsmindInner.style.transition = 'transform 0.2s ease-out'
+
+  container.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      const rect = container.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+      const scrollLeft = container.scrollLeft
+      const scrollTop = container.scrollTop
+      const contentX = (mouseX + scrollLeft) / scale
+      const contentY = (mouseY + scrollTop) / scale
+      const delta = e.deltaY > 0 ? 0.9 : 1.1
+      scale = Math.min(Math.max(scale * delta, 0.5), 2)
+      jsmindInner.style.transform = `scale(${scale})`
+      container.scrollLeft = contentX * scale - mouseX
+      container.scrollTop = contentY * scale - mouseY
+    }
+  }, { passive: false })
+
+  container.addEventListener('dblclick', (e) => {
+    if (e.target === container || e.target.classList.contains('jsmind-inner')) {
+      const centerX = (container.scrollLeft + container.clientWidth / 2) / scale
+      const centerY = (container.scrollTop + container.clientHeight / 2) / scale
+      scale = 1
+      jsmindInner.style.transition = 'transform 0.3s ease'
+      jsmindInner.style.transform = 'scale(1)'
+      setTimeout(() => {
+        container.scrollLeft = centerX - container.clientWidth / 2
+        container.scrollTop = centerY - container.clientHeight / 2
+        setTimeout(() => {
+          jsmindInner.style.transition = 'transform 0.2s ease-out'
+        }, 50)
+      }, 50)
+    }
+  })
+}
+
+const renderChatMindmap = async (mindmapId, data) => {
+  await nextTick()
+  const container = document.getElementById(mindmapId)
+  if (!container || !data) return
+
+  container.innerHTML = ''
+  chatMindmapInstances.delete(mindmapId)
+
+  const instance = new jsMind({
+    container,
+    theme: 'primary',
+    editable: false,
+    view: {
+      engine: 'canvas',
+      hmargin: 100,
+      vmargin: 50,
+      line_width: 2,
+      line_color: '#555'
+    }
+  })
+
+  instance.show(data)
+  addChatMindmapDragAndZoom(container)
+  chatMindmapInstances.set(mindmapId, instance)
+}
+
+const normalizeAttachedPaper = (paper) => ({
+  paper_id: paper.paper_id || paper.object_name || paper.id,
+  name: paper.name || paper.title || paper.original_name || paper.paper_id || paper.object_name || 'Untitled paper'
+})
+
+const getAttachedPapersMap = () => {
+  try {
+    return JSON.parse(localStorage.getItem(ATTACHED_PAPERS_STORAGE_KEY) || '{}')
+  } catch (err) {
+    console.error('Failed to parse attached papers cache:', err)
+    return {}
+  }
+}
+
+const saveAttachedPapersForConversation = (conversationId, papers) => {
+  if (!conversationId) return
+  const paperMap = getAttachedPapersMap()
+  paperMap[String(conversationId)] = papers
+  localStorage.setItem(ATTACHED_PAPERS_STORAGE_KEY, JSON.stringify(paperMap))
+}
+
+const loadAttachedPapersForConversation = (conversationId) => {
+  if (!conversationId) {
+    attachedPapers.value = []
+    return
+  }
+  const paperMap = getAttachedPapersMap()
+  attachedPapers.value = (paperMap[String(conversationId)] || []).map(normalizeAttachedPaper)
+}
+
+const removeAttachedPapersForConversation = (conversationId) => {
+  if (!conversationId) return
+  const paperMap = getAttachedPapersMap()
+  delete paperMap[String(conversationId)]
+  localStorage.setItem(ATTACHED_PAPERS_STORAGE_KEY, JSON.stringify(paperMap))
+}
+
+const ensureConversationContext = async () => {
+  if (currentConversation.value?.id) {
+    return currentConversation.value
+  }
+
+  const conv = await createConversation(DEFAULT_CONVERSATION_TITLE)
+  currentConversation.value = conv
+  loadAttachedPapersForConversation(conv.id)
+  await loadConversations()
+  return conv
+}
+
+const persistAttachedPapers = () => {
+  if (currentConversation.value?.id) {
+    saveAttachedPapersForConversation(currentConversation.value.id, attachedPapers.value)
+  }
+}
+
+const attachPaperToConversation = async (paper) => {
+  const conversation = await ensureConversationContext()
+  const normalizedPaper = normalizeAttachedPaper(paper)
+
+  if (!normalizedPaper.paper_id) {
+    throw new Error('Missing paper id from upload response')
+  }
+
+  const exists = attachedPapers.value.some(item => item.paper_id === normalizedPaper.paper_id)
+  if (!exists) {
+    attachedPapers.value = [...attachedPapers.value, normalizedPaper]
+    saveAttachedPapersForConversation(conversation.id, attachedPapers.value)
+  }
+  showAttachedPapersMenu.value = false
+}
+
+const triggerPaperUpload = () => {
+  paperUploadInput.value?.click()
+}
+
+const triggerPaperUploadAndClose = () => {
+  showInputActions.value = false
+  triggerPaperUpload()
+}
+
+const setPaperUploadNotice = (message, type = 'info') => {
+  paperUploadNotice.value = message
+  paperUploadNoticeType.value = type
+  window.setTimeout(() => {
+    if (paperUploadNotice.value === message) {
+      paperUploadNotice.value = ''
+    }
+  }, 5000)
+}
+
+const isPaperReady = (paper) => paper?.processing_status === 'indexed'
+
+const formatPaperProcessingStatus = (status) => {
+  if (status === 'indexed') return 'Indexed'
+  if (status === 'indexing') return 'Indexing'
+  if (status === 'failed') return 'Failed'
+  return 'Uploaded'
+}
+
+const getPaperStatusDetail = (paper) => {
+  if (paper?.processing_status === 'indexed') {
+    return `${paper.chunks_created || 0} chunks ready`
+  }
+  if (paper?.processing_status === 'failed') {
+    return paper.processing_error || 'Indexing failed'
+  }
+  if (paper?.processing_status === 'indexing') {
+    return 'Still parsing and indexing'
+  }
+  return 'Waiting for indexing'
+}
+
+const stopPaperLibraryPolling = () => {
+  if (paperLibraryPollTimer) {
+    window.clearInterval(paperLibraryPollTimer)
+    paperLibraryPollTimer = null
+  }
+}
+
+const syncPaperLibraryPolling = () => {
+  const hasIndexing = availablePapers.value.some(paper => paper.processing_status === 'indexing')
+  if (!paperLibraryOpen.value || !hasIndexing) {
+    stopPaperLibraryPolling()
+    return
+  }
+
+  if (!paperLibraryPollTimer) {
+    paperLibraryPollTimer = window.setInterval(async () => {
+      if (!paperLibraryOpen.value || paperLibraryLoading.value) return
+      try {
+        const data = await listPapers()
+        availablePapers.value = data.papers || []
+        if (!availablePapers.value.some(paper => paper.processing_status === 'indexing')) {
+          stopPaperLibraryPolling()
+        }
+      } catch (error) {
+        console.error('Failed to poll paper library:', error)
+      }
+    }, 4000)
+  }
+}
+
+const loadPaperLibrary = async () => {
+  paperLibraryLoading.value = true
+  paperLibraryError.value = ''
+  try {
+    const data = await listPapers()
+    availablePapers.value = data.papers || []
+    syncPaperLibraryPolling()
+  } catch (err) {
+    console.error('Failed to load paper library:', err)
+    paperLibraryError.value = 'Failed to load your paper library.'
+  } finally {
+    paperLibraryLoading.value = false
+  }
+}
+
+const openPaperLibrary = async () => {
+  paperLibraryOpen.value = true
+  paperLibraryNotice.value = ''
+  await loadPaperLibrary()
+}
+
+const openPaperLibraryFromInput = async () => {
+  showInputActions.value = false
+  await openPaperLibrary()
+}
+
+const attachLibraryPaper = async (paper) => {
+  if (!isPaperReady(paper)) {
+    paperLibraryNotice.value = 'This paper is not ready yet. Please wait until indexing completes.'
+    return
+  }
+  await attachPaperToConversation(paper)
+  paperLibraryOpen.value = false
+  showInputActions.value = false
+  setPaperUploadNotice('Paper attached to this conversation.', 'success')
+}
+
+const handlePaperUpload = async (event) => {
+  const [file] = Array.from(event.target?.files || [])
+  if (!file) return
+
+  isUploadingPaper.value = true
+  paperLibraryError.value = ''
+  paperLibraryNotice.value = ''
+
+  try {
+    const uploadedPaper = await uploadPaper(file)
+    await loadPaperLibrary()
+    const refreshedPaper = availablePapers.value.find(
+      paper => paper.object_name === uploadedPaper.object_name
+    )
+
+    if (refreshedPaper && isPaperReady(refreshedPaper)) {
+      await attachPaperToConversation(refreshedPaper)
+      setPaperUploadNotice('Paper uploaded, indexed, and attached successfully.', 'success')
+    } else {
+      setPaperUploadNotice(
+        uploadedPaper.message || 'Paper uploaded successfully. Indexing is still in progress.',
+        uploadedPaper.processing_status === 'failed' ? 'error' : 'warning'
+      )
+    }
+  } catch (err) {
+    console.error('Failed to upload paper:', err)
+    paperLibraryError.value = err.message || 'Failed to upload paper.'
+    setPaperUploadNotice(paperLibraryError.value, 'error')
+  } finally {
+    isUploadingPaper.value = false
+    if (event.target) {
+      event.target.value = ''
+    }
+  }
+}
+
+const removeAttachedPaper = (paperId) => {
+  attachedPapers.value = attachedPapers.value.filter(paper => paper.paper_id !== paperId)
+  persistAttachedPapers()
+  if (attachedPapers.value.length === 0) {
+    showAttachedPapersMenu.value = false
+  }
 }
 
 // ============================================
-// 对话管理函数
+// 瀵硅瘽绠＄悊鍑芥暟
 // ============================================
 
-// 加载对话列表
+// 鍔犺浇瀵硅瘽鍒楄〃
 const loadConversations = async () => {
   try {
     const data = await getConversations(0, 50)
-    conversations.value = data.conversations
+    const conversationList = data.conversations || []
+    conversations.value = await Promise.all(
+      conversationList.map(conversation => hydrateConversationTitle({ ...conversation }))
+    )
   } catch (err) {
-    console.error('加载对话列表失败:', err)
+    console.error('鍔犺浇瀵硅瘽鍒楄〃澶辫触:', err)
   }
 }
 
-// 创建新对话
 const createNewChat = async () => {
   try {
-    // 如果正在生成内容，先保存当前对话的最后一条AI消息
+    // 濡傛灉姝ｅ湪鐢熸垚鍐呭锛屽厛淇濆瓨褰撳墠瀵硅瘽鐨勬渶鍚庝竴鏉I娑堟伅
     if (isLoading.value && currentConversation.value && messages.value.length > 0) {
       const lastMessage = messages.value[messages.value.length - 1]
       if (lastMessage.role === 'assistant' && lastMessage.content) {
-        // 提取纯文本内容（去除HTML标签）
         const plainContent = lastMessage.content.replace(/<[^>]*>/g, '')
         if (plainContent.trim()) {
           await saveMessage('assistant', plainContent)
         }
       }
-      // 停止加载状态
       isLoading.value = false
     }
     
-    const conv = await createConversation('新对话')
+    const conv = await createConversation(DEFAULT_CONVERSATION_TITLE)
     currentConversation.value = conv
     messages.value = []
+    attachedPapers.value = []
+    saveAttachedPapersForConversation(conv.id, [])
     await loadConversations()
     
-    // 移动端关闭侧边栏
+    // 绉诲姩绔叧闂晶杈规爮
     if (window.innerWidth <= 1024) {
       sidebarOpen.value = false
     }
   } catch (err) {
-    console.error('创建对话失败:', err)
-    // 即使失败也允许继续聊天（不保存到数据库）
+    console.error('鍒涘缓瀵硅瘽澶辫触:', err)
+    // 鍗充娇澶辫触涔熷厑璁哥户缁亰澶╋紙涓嶄繚瀛樺埌鏁版嵁搴擄級
     currentConversation.value = null
     messages.value = []
   }
 }
 
-// 切换对话
+// 鍒囨崲瀵硅瘽
 const switchConversation = async (conversationId) => {
   try {
-    // 如果正在生成内容，先保存当前对话的最后一条AI消息
+    // 濡傛灉姝ｅ湪鐢熸垚鍐呭锛屽厛淇濆瓨褰撳墠瀵硅瘽鐨勬渶鍚庝竴鏉I娑堟伅
     if (isLoading.value && currentConversation.value && messages.value.length > 0) {
       const lastMessage = messages.value[messages.value.length - 1]
       if (lastMessage.role === 'assistant' && lastMessage.content) {
-        // 提取纯文本内容（去除HTML标签）
         const plainContent = lastMessage.content.replace(/<[^>]*>/g, '')
         if (plainContent.trim()) {
           await saveMessage('assistant', plainContent)
         }
       }
-      // 停止加载状态
       isLoading.value = false
     }
     
     const conv = await getConversation(conversationId)
+    if (conv.title === DEFAULT_CONVERSATION_TITLE) {
+      const derivedTitle = buildConversationTitle(getFirstUserMessageContent(conv))
+      if (derivedTitle !== DEFAULT_CONVERSATION_TITLE) {
+        conv.title = derivedTitle
+      }
+    }
     currentConversation.value = conv
+    loadAttachedPapersForConversation(conv.id)
     
-    // 转换消息格式
-    messages.value = conv.messages.map(msg => ({
-      role: msg.role,
-      content: msg.role === 'user' ? msg.content : marked(renderLatex(msg.content)),
-      time: formatMessageTime(msg.created_at)
-    }))
+    // 杞崲娑堟伅鏍煎紡锛屽苟鎭㈠持久化的思维导图
+    messages.value = conv.messages.map(normalizeConversationMessage)
     
     await nextTick()
+    for (const message of messages.value) {
+      if (!message.mindmaps?.length) continue
+      for (const mindmap of message.mindmaps) {
+        await renderChatMindmap(mindmap.id, mindmap.data)
+      }
+    }
     scrollToBottom()
     
-    // 移动端关闭侧边栏
+    // 绉诲姩绔叧闂晶杈规爮
     if (window.innerWidth <= 1024) {
       sidebarOpen.value = false
     }
   } catch (err) {
-    console.error('加载对话失败:', err)
+    console.error('鍔犺浇瀵硅瘽澶辫触:', err)
   }
 }
 
-// 删除对话
+// 鍒犻櫎瀵硅瘽
 const deleteChat = async (conversationId) => {
   if (!confirm('确定要删除这个对话吗？')) return
   
   try {
     await deleteConversation(conversationId)
+    removeAttachedPapersForConversation(conversationId)
     
-    // 如果删除的是当前对话，清空界面
     if (currentConversation.value?.id === conversationId) {
       currentConversation.value = null
       messages.value = []
+      attachedPapers.value = []
     }
     
     await loadConversations()
   } catch (err) {
-    console.error('删除对话失败:', err)
+    console.error('鍒犻櫎瀵硅瘽澶辫触:', err)
   }
 }
 
-// 保存消息到数据库
+// 淇濆瓨娑堟伅鍒版暟鎹簱
 const saveMessage = async (role, content) => {
   if (!currentConversation.value) return
   
   try {
     await addMessage(currentConversation.value.id, role, content)
   } catch (err) {
-    console.error('保存消息失败:', err)
+    console.error('淇濆瓨娑堟伅澶辫触:', err)
   }
 }
 
-// 更新对话标题（使用第一条消息）
+// 鏇存柊瀵硅瘽鏍囬锛堜娇鐢ㄧ涓€鏉℃秷鎭級
 const updateConversationTitle = async (firstMessage) => {
-  if (!currentConversation.value || currentConversation.value.title !== '新对话') return
+  if (!currentConversation.value || currentConversation.value.title !== DEFAULT_CONVERSATION_TITLE) return
   
   try {
-    // 使用第一条消息的前30个字符作为标题
-    const title = firstMessage.substring(0, 30) + (firstMessage.length > 30 ? '...' : '')
+    const title = buildConversationTitle(firstMessage)
     await updateConversation(currentConversation.value.id, title)
     currentConversation.value.title = title
     await loadConversations()
   } catch (err) {
-    console.error('更新标题失败:', err)
+    console.error('鏇存柊鏍囬澶辫触:', err)
   }
 }
 
-// 格式化时间显示
 const formatTime = (dateString) => {
   if (!dateString) return ''
   
-  // 解析时间，如果后端返回的是 UTC 时间字符串（如 "2024-01-20T10:30:00"）
-  // 需要添加 'Z' 或明确指定为 UTC
+  // 瑙ｆ瀽鏃堕棿锛屽鏋滃悗绔繑鍥炵殑鏄?UTC 鏃堕棿瀛楃涓诧紙濡?"2024-01-20T10:30:00"锛?  // 闇€瑕佹坊鍔?'Z' 鎴栨槑纭寚瀹氫负 UTC
   let date = new Date(dateString)
   
-  // 如果时间字符串没有时区信息，尝试添加时区
+  // 濡傛灉鏃堕棿瀛楃涓叉病鏈夋椂鍖轰俊鎭紝灏濊瘯娣诲姞鏃跺尯
   if (typeof dateString === 'string' && !dateString.includes('Z') && !dateString.includes('+')) {
-    // 假设后端返回的是本地时间，直接使用
     date = new Date(dateString.replace(' ', 'T'))
   }
   
@@ -587,15 +1442,9 @@ const formatTime = (dateString) => {
   return date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
 }
 
-// 格式化消息时间
 const formatMessageTime = (dateString) => {
   const date = new Date(dateString)
   return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-}
-
-const sendSuggestedPrompt = (prompt) => {
-  inputMessage.value = prompt
-  sendMessage()
 }
 
 const sendMessage = async () => {
@@ -603,14 +1452,14 @@ const sendMessage = async () => {
 
   const userInput = inputMessage.value
   
-  // 如果没有当前对话，创建一个新对话
+  // 濡傛灉娌℃湁褰撳墠瀵硅瘽锛屽垱寤轰竴涓柊瀵硅瘽
   if (!currentConversation.value) {
     try {
-      currentConversation.value = await createConversation('新对话')
+      currentConversation.value = await createConversation(DEFAULT_CONVERSATION_TITLE)
       await loadConversations()
     } catch (err) {
-      console.error('创建对话失败:', err)
-      // 即使创建失败也继续（不保存到数据库）
+      console.error('鍒涘缓瀵硅瘽澶辫触:', err)
+      // 鍗充娇鍒涘缓澶辫触涔熺户缁紙涓嶄繚瀛樺埌鏁版嵁搴擄級
     }
   }
 
@@ -622,10 +1471,10 @@ const sendMessage = async () => {
 
   messages.value.push(userMessage)
   inputMessage.value = ''
+  await updateConversationTitle(userInput)
 
-  // 注意：用户消息已在 Agent Service 中自动保存，无需前端再次保存
-  // 标题也在 Agent Service 中自动生成
-
+  // 娉ㄦ剰锛氱敤鎴锋秷鎭凡鍦?Agent Service 涓嚜鍔ㄤ繚瀛橈紝鏃犻渶鍓嶇鍐嶆淇濆瓨
+  // 鏍囬涔熷湪 Agent Service 涓嚜鍔ㄧ敓鎴?
   // Auto-resize textarea
   if (inputTextarea.value) {
     inputTextarea.value.style.height = 'auto'
@@ -637,6 +1486,7 @@ const sendMessage = async () => {
 
   // Call real API
   isLoading.value = true
+  activeToolCall.value = ''
   error.value = null
   
   try {
@@ -649,7 +1499,6 @@ const sendMessage = async () => {
         content: typeof m.content === 'string' ? m.content.replace(/<[^>]*>/g, '') : m.content
       }))
 
-    // 先滚动到底部，准备显示加载动画
     await nextTick()
     scrollToBottom()
 
@@ -664,7 +1513,8 @@ const sendMessage = async () => {
       body: JSON.stringify({
         message: userInput,
         conversation_id: currentConversation.value?.id,
-        stream: true
+        stream: true,
+        attached_papers: attachedPapers.value
       })
     })
 
@@ -690,7 +1540,7 @@ const sendMessage = async () => {
       buffer = lines.pop() || ''
 
       for (const line of lines) {
-        // 解析事件类型
+        // 瑙ｆ瀽浜嬩欢绫诲瀷
         if (line.startsWith('event:')) {
           currentEvent = line.slice(6).trim()
           continue
@@ -702,118 +1552,94 @@ const sendMessage = async () => {
           if (!data || data === '') continue
 
           try {
-            // 处理不同类型的事件
             if (currentEvent === 'conversation') {
-              // 新创建的对话，更新 conversation_id
               const convData = JSON.parse(data)
               if (convData.conversation_id && !currentConversation.value) {
                 currentConversation.value = { id: convData.conversation_id }
-                console.log('📝 New conversation created:', convData.conversation_id)
-                // 刷新对话列表
+                console.log('New conversation created:', convData.conversation_id)
                 await loadConversations()
               }
             } else if (currentEvent === 'thinking') {
-              // 显示思考过程（可选：可以在 UI 中显示）
-              console.log('🤔 Agent thinking:', data)
-              // 第一次收到内容时，创建 assistant 消息
-              if (assistantMessageIndex === -1) {
-                isLoading.value = false
-                assistantMessageIndex = messages.value.length
-                messages.value.push({
-                  role: 'assistant',
-                  content: `<div class="agent-thinking">🤔 ${JSON.parse(data)}</div>`,
-                  time: getCurrentTime()
-                })
-                await nextTick()
-                scrollToBottom()
-              }
+              console.log('Agent thinking:', data)
             } else if (currentEvent === 'tool_call') {
-              // 显示工具调用
               const toolData = JSON.parse(data)
-              console.log('🔧 Tool call:', toolData)
-              if (assistantMessageIndex !== -1) {
-                const toolInfo = `<div class="agent-tool-call">🔧 调用工具: ${toolData.name}</div>`
-                messages.value[assistantMessageIndex].content += toolInfo
-                await nextTick()
-                scrollToBottom()
-              }
+              console.log('Tool call:', toolData)
+              activeToolCall.value = toolData.name || ''
             } else if (currentEvent === 'papers') {
-              // 渲染论文卡片
               const papersData = JSON.parse(data)
-              console.log('📚 Papers result:', papersData)
-              if (assistantMessageIndex !== -1) {
-                const papersHtml = renderPapersCards(papersData)
-                messages.value[assistantMessageIndex].content += papersHtml
-                await nextTick()
-                scrollToBottom()
-              }
-            } else if (currentEvent === 'token') {
-              // Token 级别流式输出 - 实时显示每个 token
-              const tokenContent = JSON.parse(data)
+              console.log('Papers result:', papersData)
+            } else if (currentEvent === 'mindmap') {
+              const mindmapData = JSON.parse(data)
+              console.log('Mindmap result:', mindmapData)
               if (assistantMessageIndex === -1) {
                 isLoading.value = false
-                assistantMessageIndex = messages.value.length
-                messages.value.push({
-                  role: 'assistant',
-                  content: '',
-                  rawContent: '', // 存储原始文本用于 markdown 渲染
-                  time: getCurrentTime()
-                })
+                assistantMessageIndex = ensureAssistantMessage()
               }
-              // 累积原始文本
-              messages.value[assistantMessageIndex].rawContent = 
+              await appendAssistantMindmap(assistantMessageIndex, mindmapData)
+              appendAssistantArtifact(
+                assistantMessageIndex,
+                '<div class="mindmap-artifact-note">已生成可视化思维导图。</div>'
+              )
+              await nextTick()
+              scrollToBottom()
+            } else if (currentEvent === 'analysis') {
+              const analysisData = JSON.parse(data)
+              console.log('Analysis result:', analysisData)
+              if (assistantMessageIndex === -1) {
+                isLoading.value = false
+                assistantMessageIndex = ensureAssistantMessage()
+              }
+              appendAssistantAnalysis(assistantMessageIndex, analysisData)
+              await nextTick()
+              scrollToBottom()
+            } else if (currentEvent === 'token') {
+              const tokenContent = JSON.parse(data)
+              activeToolCall.value = ''
+              if (assistantMessageIndex === -1) {
+                isLoading.value = false
+                assistantMessageIndex = ensureAssistantMessage()
+              }
+              messages.value[assistantMessageIndex].rawContent =
                 (messages.value[assistantMessageIndex].rawContent || '') + tokenContent
               fullResponse = messages.value[assistantMessageIndex].rawContent
-              // 实时渲染 markdown
-              const latexRendered = renderLatex(fullResponse)
-              messages.value[assistantMessageIndex].content = marked(latexRendered)
+              messages.value[assistantMessageIndex].textHtml = renderAssistantTextHtml(fullResponse)
+              syncAssistantMessageContent(assistantMessageIndex)
               await nextTick()
               scrollToBottom()
             } else if (currentEvent === 'answer' || currentEvent === 'answer_end') {
-              // 最终答案（完整答案或流式结束）
               if (currentEvent === 'answer') {
                 fullResponse = JSON.parse(data)
               }
-              // 如果之前没有流式输出，创建消息
+              activeToolCall.value = ''
               if (assistantMessageIndex === -1) {
                 isLoading.value = false
-                assistantMessageIndex = messages.value.length
-                messages.value.push({
-                  role: 'assistant',
-                  content: '',
-                  time: getCurrentTime()
-                })
+                assistantMessageIndex = ensureAssistantMessage()
               }
-              // 只有在有完整答案时才覆盖（非流式场景）
               if (fullResponse) {
-                const latexRendered = renderLatex(fullResponse)
-                messages.value[assistantMessageIndex].content = marked(latexRendered)
+                messages.value[assistantMessageIndex].textHtml = renderAssistantTextHtml(fullResponse)
+                syncAssistantMessageContent(assistantMessageIndex)
               }
               await nextTick()
               scrollToBottom()
             } else if (currentEvent === 'error') {
+              activeToolCall.value = ''
               const errorData = JSON.parse(data)
               throw new Error(errorData.error || 'Agent error')
             } else if (currentEvent === 'done') {
-              // 流式传输完成
-              console.log('✅ Agent done')
+              activeToolCall.value = ''
+              console.log('Agent done')
             }
           } catch (e) {
             if (e instanceof SyntaxError) {
-              // 尝试直接使用 data 字符串
               if (currentEvent === 'answer' && data) {
                 fullResponse = data
+                activeToolCall.value = ''
                 if (assistantMessageIndex === -1) {
                   isLoading.value = false
-                  assistantMessageIndex = messages.value.length
-                  messages.value.push({
-                    role: 'assistant',
-                    content: '',
-                    time: getCurrentTime()
-                  })
+                  assistantMessageIndex = ensureAssistantMessage()
                 }
-                const latexRendered = renderLatex(fullResponse)
-                messages.value[assistantMessageIndex].content = marked(latexRendered)
+                messages.value[assistantMessageIndex].textHtml = renderAssistantTextHtml(fullResponse)
+                syncAssistantMessageContent(assistantMessageIndex)
                 await nextTick()
                 scrollToBottom()
               }
@@ -821,18 +1647,17 @@ const sendMessage = async () => {
             }
             throw e
           }
+          }
         }
       }
-    }
 
-    // 刷新对话列表以更新消息数量
-    // 注意：消息已在 Agent Service 中自动保存，无需前端再次保存
+    // 鍒锋柊瀵硅瘽鍒楄〃浠ユ洿鏂版秷鎭暟閲?    // 娉ㄦ剰锛氭秷鎭凡鍦?Agent Service 涓嚜鍔ㄤ繚瀛橈紝鏃犻渶鍓嶇鍐嶆淇濆瓨
     if (fullResponse && assistantMessageIndex !== -1) {
       await loadConversations()
     }
 
-    // 确保加载状态关闭
     isLoading.value = false
+    activeToolCall.value = ''
 
   } catch (err) {
     console.error('Error sending message:', err)
@@ -850,6 +1675,7 @@ const sendMessage = async () => {
     })
     
     isLoading.value = false
+    activeToolCall.value = ''
     
     await nextTick()
     scrollToBottom()
@@ -880,10 +1706,13 @@ onMounted(async () => {
     inputTextarea.value.addEventListener('input', autoResize)
   }
 
-  // 加载对话列表
+  // 鍔犺浇瀵硅瘽鍒楄〃
   await loadConversations()
 
-  // 桌面端默认打开侧边栏
+  if (route.query.conversationId) {
+    await switchConversation(Number(route.query.conversationId))
+  }
+
   if (window.innerWidth > 1024) {
     sidebarOpen.value = true
   }
@@ -893,7 +1722,7 @@ onMounted(async () => {
     const workInfo = history.state?.workInfo
     if (workInfo) {
       // Add context banner
-      const contextMessage = `📚 Discussing paper: **${workInfo.title}**\n\n` +
+      const contextMessage = `馃摎 Discussing paper: **${workInfo.title}**\n\n` +
         `*Authors:* ${workInfo.authors}\n` +
         `*Year:* ${workInfo.year || 'N/A'}\n` +
         `*Citations:* ${workInfo.citations || 0}\n\n` +
@@ -908,6 +1737,20 @@ onMounted(async () => {
       })
     }
   }
+})
+
+watch(
+  () => route.query.conversationId,
+  async (conversationId) => {
+    if (!conversationId) return
+    if (String(currentConversation.value?.id) === String(conversationId)) return
+    await switchConversation(Number(conversationId))
+  }
+)
+
+onBeforeUnmount(() => {
+  stopPaperLibraryPolling()
+  chatMindmapInstances.clear()
 })
 </script>
 
@@ -1130,17 +1973,46 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  max-width: 1600px;
   min-width: 0;
+  background:
+    radial-gradient(circle at 74% 18%, rgba(168, 85, 247, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(5, 8, 23, 0.18), rgba(5, 8, 23, 0.68));
 }
 
 .chat-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 24px 32px 0;
-  margin-bottom: 24px;
-  gap: 24px;
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto 18px;
+  padding: 28px 0 0;
+  gap: 20px;
+}
+
+.paper-upload-notice {
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  border: 1px solid var(--border-primary);
+  background: rgba(15, 23, 42, 0.82);
+  color: var(--text-primary);
+}
+
+.paper-upload-notice.success {
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+
+.paper-upload-notice.warning {
+  border-color: rgba(250, 204, 21, 0.35);
+  color: #fde68a;
+}
+
+.paper-upload-notice.error {
+  border-color: rgba(244, 63, 94, 0.35);
+  color: #fda4af;
 }
 
 .mobile-menu-btn {
@@ -1166,91 +2038,834 @@ onMounted(async () => {
 
 .header-section {
   flex: 1;
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.chat-header h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 34px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 15px;
 }
 
 .header-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
+  padding: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 14px;
+  background: rgba(8, 13, 28, 0.38);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+}
+
+.header-actions.compact-attachments {
+  position: relative;
+  max-width: min(420px, 100%);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+  justify-content: flex-end;
+}
+
+.memory-header-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  min-width: 128px;
+  padding: 11px 20px;
+  border-color: rgba(125, 92, 255, 0.46);
+  background:
+    linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(139, 92, 246, 0.44)),
+    rgba(15, 23, 42, 0.82);
+  color: #f8fafc;
+  font-weight: 800;
+  letter-spacing: 0;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 14px 34px rgba(76, 29, 149, 0.32),
+    0 0 28px rgba(56, 189, 248, 0.12);
+}
+
+.memory-header-btn:hover:not(:disabled) {
+  border-color: rgba(56, 189, 248, 0.62);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 18px 42px rgba(76, 29, 149, 0.42),
+    0 0 34px rgba(56, 189, 248, 0.24);
+}
+
+.header-attachments-control {
+  position: relative;
+}
+
+.header-attachment-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+}
+
+.header-attachment-trigger:hover {
+  border-color: var(--border-glow);
+  color: var(--text-primary);
+}
+
+.header-attachment-trigger-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.header-attachment-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.14);
+  color: var(--accent-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.header-attachments-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(360px, calc(100vw - 48px));
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(10, 16, 32, 0.96);
+  border: 1px solid var(--border-primary);
+  box-shadow: 0 22px 44px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(16px);
+  z-index: 30;
+}
+
+.header-attachments-menu-title {
+  padding: 4px 6px 10px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.header-attachments-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.header-attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid var(--border-primary);
+}
+
+.header-attachment-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.header-attachment-remove {
+  padding: 0;
+  background: transparent;
+  color: var(--accent-danger);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.header-attachment-remove:hover {
+  color: #fda4af;
+}
+
+.paper-upload-input {
+  display: none;
+}
+
+.header-action-btn {
+  border: 1px solid var(--border-primary);
+  background: rgba(15, 23, 42, 0.7);
+  color: var(--text-primary);
+  border-radius: 10px;
+  padding: 10px 16px;
+  min-height: 38px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.header-action-btn:hover:not(:disabled) {
+  border-color: var(--border-glow);
+  color: var(--accent-primary);
+  box-shadow: var(--glow-primary);
+}
+
+.header-action-btn.secondary {
+  background: rgba(5, 8, 23, 0.48);
+}
+
+.header-action-btn.danger {
+  border-color: rgba(244, 63, 94, 0.28);
+  background: rgba(127, 29, 29, 0.18);
+  color: #fda4af;
+}
+
+.header-action-btn.danger:hover:not(:disabled) {
+  border-color: rgba(244, 63, 94, 0.5);
+  color: #fecdd3;
+  box-shadow: 0 0 24px rgba(244, 63, 94, 0.16);
+}
+
+.header-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.paper-library-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 24px;
+}
+
+.paper-library-modal {
+  width: min(720px, 100%);
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 20px;
+}
+
+.paper-library-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.paper-library-header h3,
+.paper-library-header p {
+  margin: 0;
+}
+
+.paper-library-header p {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.paper-library-close {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.paper-library-list {
+  padding: 16px 24px 24px;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+}
+
+.paper-library-item {
+  text-align: left;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-card);
+  border-radius: 14px;
+  padding: 16px;
+  cursor: pointer;
+}
+
+.paper-library-item:hover {
+  border-color: var(--accent-primary);
+}
+
+.paper-library-item.disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.paper-library-item.disabled:hover {
+  border-color: var(--border-primary);
+}
+
+.paper-library-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.paper-library-subtitle,
+.paper-library-id,
+.paper-library-empty,
+.paper-library-error {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.paper-library-notice {
+  color: #fde68a;
+  font-size: 13px;
+  padding: 16px 24px 0;
+}
+
+.paper-library-subtitle,
+.paper-library-id {
+  margin-top: 6px;
+}
+
+.paper-library-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.paper-library-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.paper-library-status-badge.uploaded {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.paper-library-status-badge.indexing {
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, 0.28);
+}
+
+.paper-library-status-badge.indexed {
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.paper-library-status-badge.failed {
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.28);
+}
+
+.paper-library-status-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.paper-library-empty,
+.paper-library-error {
+  padding: 24px;
+}
+
+.memory-editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.memory-editor-modal {
+  width: min(960px, 100%);
+  max-height: min(86vh, 860px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-primary);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 80% 0%, rgba(56, 189, 248, 0.1), transparent 26%),
+    var(--bg-primary);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+}
+
+.memory-editor-header,
+.memory-editor-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px;
+}
+
+.memory-editor-header {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.memory-editor-header h3,
+.memory-editor-header p {
+  margin: 0;
+}
+
+.memory-editor-header h3 {
+  font-size: 24px;
+}
+
+.memory-editor-header p,
+.memory-editor-stats {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.memory-editor-state {
+  margin: 16px 22px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.memory-editor-state.error {
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  background: rgba(127, 29, 29, 0.18);
+  color: #fda4af;
+}
+
+.memory-editor-state.success {
+  border: 1px solid rgba(34, 197, 94, 0.32);
+  background: rgba(20, 83, 45, 0.16);
+  color: #86efac;
+}
+
+.memory-editor-body {
+  min-height: 420px;
+  flex: 1;
+  padding: 18px 22px;
+}
+
+.memory-editor-loading {
+  height: 420px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-secondary);
+}
+
+.memory-editor-textarea {
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  resize: vertical;
+  padding: 18px;
+  border: 1px solid var(--border-primary);
+  border-radius: 14px;
+  outline: none;
+  background: rgba(5, 8, 23, 0.62);
+  color: var(--text-primary);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.memory-editor-textarea:focus {
+  border-color: var(--border-glow);
+  box-shadow: var(--glow-primary);
+}
+
+.memory-editor-footer {
+  align-items: center;
+  border-top: 1px solid var(--border-primary);
+}
+
+.memory-editor-stats,
+.memory-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 0 32px 24px;
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 0 0 24px;
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
 .empty-state {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 400px;
+  align-self: center;
+  width: min(820px, 100%);
+  min-height: 520px;
+  margin: auto 0;
   text-align: center;
-  padding: 40px;
+  padding: 40px 36px 24px;
+  overflow: hidden;
+}
+
+.empty-state::before {
+  content: '';
+  position: absolute;
+  inset: 8% 0 auto;
+  width: 620px;
+  height: 360px;
+  margin: 0 auto;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(56, 189, 248, 0.2), transparent 34%),
+    radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.13), transparent 52%);
+  filter: blur(4px);
+  animation: coreAura 7s ease-in-out infinite;
+}
+
+.ai-logo-stage {
+  position: relative;
+  z-index: 1;
+  width: 280px;
+  height: 280px;
+  margin-bottom: 22px;
+  display: grid;
+  place-items: center;
+  perspective: 900px;
 }
 
 .empty-icon {
-  width: 120px;
-  height: 120px;
+  position: relative;
+  z-index: 1;
+  width: 128px;
+  height: 128px;
   border-radius: 50%;
-  background: var(--gradient-primary);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 24px;
-  box-shadow: var(--glow-primary);
+  color: #ffffff;
+  box-shadow:
+    0 0 42px rgba(56, 189, 248, 0.18),
+    0 0 96px rgba(129, 140, 248, 0.18);
+  transform: rotateX(10deg) rotateZ(-4deg);
+  animation: logoFloat 5.6s ease-in-out infinite;
+}
+
+.empty-icon::before {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(103, 232, 249, 0.22), rgba(129, 140, 248, 0.12) 42%, transparent 70%);
+  opacity: 0.82;
+  filter: blur(16px);
+  z-index: -1;
+  animation: logoPulse 3.2s ease-in-out infinite;
 }
 
 .empty-icon svg {
-  color: white;
+  overflow: visible;
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.42));
+}
+
+.core-ring {
+  stroke: rgba(226, 232, 240, 0.72);
+  stroke-width: 1.8;
+  fill: none;
+  opacity: 0.92;
+}
+
+.core-ring-inner {
+  stroke: rgba(125, 211, 252, 0.6);
+  stroke-width: 1.4;
+  opacity: 0.9;
+}
+
+.core-arc {
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 3;
+  stroke-linecap: round;
+  fill: none;
+  filter: drop-shadow(0 0 10px rgba(125, 211, 252, 0.32));
+}
+
+.core-arc-secondary {
+  stroke: rgba(196, 181, 253, 0.88);
+  filter: drop-shadow(0 0 10px rgba(196, 181, 253, 0.28));
+}
+
+.core-pulse {
+  fill: #ffffff;
+  filter:
+    drop-shadow(0 0 12px rgba(255, 255, 255, 0.9))
+    drop-shadow(0 0 28px rgba(103, 232, 249, 0.5));
+  animation: coreSpark 3.4s ease-in-out infinite;
+}
+
+.logo-halo,
+.logo-orbit,
+.logo-reflection {
+  position: absolute;
+  pointer-events: none;
+}
+
+.logo-halo {
+  inset: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  box-shadow: inset 0 0 34px rgba(56, 189, 248, 0.08);
+}
+
+.halo-1 {
+  animation: haloBreath 4.4s ease-in-out infinite;
+}
+
+.halo-2 {
+  inset: 12px;
+  border-color: rgba(196, 181, 253, 0.12);
+  transform: rotateX(68deg);
+  animation: haloTilt 7s linear infinite;
+}
+
+.logo-orbit {
+  inset: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  transform-style: preserve-3d;
+}
+
+.logo-orbit span {
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #67e8f9;
+  box-shadow: 0 0 18px rgba(103, 232, 249, 0.95);
+}
+
+.orbit-a {
+  animation: orbitSpin 9s linear infinite;
+}
+
+.orbit-b {
+  inset: 46px;
+  transform: rotateX(68deg) rotateZ(22deg);
+  animation: orbitSpinReverse 12s linear infinite;
+}
+
+.orbit-b span {
+  background: #c4b5fd;
+  box-shadow: 0 0 18px rgba(196, 181, 253, 0.95);
+}
+
+.orbit-c {
+  inset: 70px;
+  transform: rotateY(62deg) rotateZ(-18deg);
+  animation: orbitSpin 7.5s linear infinite;
+}
+
+.orbit-c span {
+  width: 6px;
+  height: 6px;
+  background: #34d399;
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.85);
+}
+
+.logo-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.logo-particles span {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(186, 230, 253, 0.9);
+  box-shadow: 0 0 12px rgba(125, 211, 252, 0.8);
+  animation: particleDrift 4.8s ease-in-out infinite;
+}
+
+.logo-particles span:nth-child(1) { left: 20%; top: 26%; animation-delay: -0.4s; }
+.logo-particles span:nth-child(2) { left: 78%; top: 30%; animation-delay: -1.1s; }
+.logo-particles span:nth-child(3) { left: 15%; top: 66%; animation-delay: -2s; }
+.logo-particles span:nth-child(4) { left: 84%; top: 68%; animation-delay: -2.7s; }
+.logo-particles span:nth-child(5) { left: 48%; top: 12%; animation-delay: -3.2s; }
+.logo-particles span:nth-child(6) { left: 52%; top: 88%; animation-delay: -3.9s; }
+
+.logo-reflection {
+  bottom: 20px;
+  width: 156px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(56, 189, 248, 0.22), transparent 72%);
+  filter: blur(3px);
+  animation: reflectionPulse 5.6s ease-in-out infinite;
+}
+
+.empty-copy {
+  position: relative;
+  z-index: 1;
+}
+
+.empty-kicker {
+  margin-bottom: 10px;
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .empty-state h3 {
-  font-size: 24px;
-  font-weight: 600;
+  position: relative;
+  z-index: 1;
+  font-size: 30px;
+  font-weight: 800;
   color: var(--text-primary);
   margin-bottom: 12px;
 }
 
 .empty-state p {
+  position: relative;
+  z-index: 1;
   font-size: 15px;
   color: var(--text-secondary);
-  margin-bottom: 32px;
+  margin-bottom: 26px;
 }
 
-.suggested-prompts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  justify-content: center;
-  max-width: 600px;
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0) rotateX(10deg) rotateZ(-4deg); }
+  50% { transform: translateY(-16px) rotateX(14deg) rotateZ(3deg); }
 }
 
-.prompt-btn {
-  padding: 10px 20px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
-  border-radius: 20px;
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.3s ease;
+@keyframes logoPulse {
+  0%, 100% { opacity: 0.62; transform: scale(1); }
+  50% { opacity: 0.95; transform: scale(1.08); }
 }
 
-.prompt-btn:hover {
-  border-color: var(--border-glow);
-  box-shadow: var(--glow-primary);
-  transform: translateY(-2px);
+@keyframes haloBreath {
+  0%, 100% { opacity: 0.38; transform: scale(0.92); }
+  50% { opacity: 0.78; transform: scale(1.05); }
+}
+
+@keyframes haloTilt {
+  from { transform: rotateX(68deg) rotateZ(0deg); }
+  to { transform: rotateX(68deg) rotateZ(360deg); }
+}
+
+@keyframes orbitSpin {
+  from { transform: rotateZ(0deg); }
+  to { transform: rotateZ(360deg); }
+}
+
+@keyframes orbitSpinReverse {
+  from { transform: rotateX(68deg) rotateZ(360deg); }
+  to { transform: rotateX(68deg) rotateZ(0deg); }
+}
+
+@keyframes particleDrift {
+  0%, 100% { opacity: 0.18; transform: translate3d(0, 0, 0) scale(0.7); }
+  50% { opacity: 1; transform: translate3d(8px, -14px, 0) scale(1.2); }
+}
+
+@keyframes reflectionPulse {
+  0%, 100% { opacity: 0.34; transform: scaleX(0.82); }
+  50% { opacity: 0.62; transform: scaleX(1.08); }
+}
+
+@keyframes coreAura {
+  0%, 100% { opacity: 0.72; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes coreSpark {
+  0%, 100% { opacity: 0.86; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.04); }
 }
 
 .message {
   display: flex;
   gap: 16px;
+  width: min(920px, 100%);
   animation: fadeIn 0.3s ease;
+}
+
+.message-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.message-assistant {
+  align-self: flex-start;
 }
 
 @keyframes fadeIn {
@@ -1425,6 +3040,13 @@ onMounted(async () => {
   padding: 16px 20px;
 }
 
+.tool-call-status {
+  padding: 12px 20px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
 .typing-indicator span {
   width: 8px;
   height: 8px;
@@ -1454,25 +3076,90 @@ onMounted(async () => {
 
 /* Chat Input */
 .chat-input-container {
-  padding: 16px 32px;
+  padding: 14px 0 16px;
   border-top: 1px solid var(--border-primary);
+  background: rgba(5, 8, 23, 0.52);
+  backdrop-filter: blur(14px);
 }
 
 .chat-input-wrapper {
   display: flex;
   gap: 12px;
   align-items: center;
-  background: var(--bg-card);
-  backdrop-filter: blur(10px);
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto;
+  background: rgba(15, 23, 42, 0.74);
+  backdrop-filter: blur(16px);
   border: 1px solid var(--border-primary);
-  border-radius: 12px;
-  padding: 8px 12px;
+  border-radius: 14px;
+  padding: 9px 12px;
   transition: all 0.3s ease;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
 }
 
 .chat-input-wrapper:focus-within {
+  border-color: var(--border-glow);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1), 0 18px 50px rgba(0, 0, 0, 0.26);
+}
+
+.input-plus-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.plus-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border-primary);
+  background: rgba(8, 13, 28, 0.78);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.plus-btn:hover:not(:disabled) {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.plus-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.input-actions-popover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  min-width: 180px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-card);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 20;
+}
+
+.input-action-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.input-action-item:hover {
+  background: var(--bg-secondary);
 }
 
 .chat-input {
@@ -1514,7 +3201,7 @@ onMounted(async () => {
 
 .send-btn:hover:not(:disabled) {
   transform: scale(1.05);
-  box-shadow: 0 0 30px rgba(102, 126, 234, 0.8);
+  box-shadow: 0 0 30px rgba(56, 189, 248, 0.5);
 }
 
 .send-btn:disabled {
@@ -1930,6 +3617,158 @@ onMounted(async () => {
   font-size: 14px;
 }
 
+.message-mindmaps :deep(.mindmap-card) {
+  margin: 20px 0;
+  padding: 18px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(14, 22, 48, 0.96), rgba(10, 16, 36, 0.96));
+  border: 1px solid var(--border-primary);
+}
+
+.message-mindmaps :deep(.mindmap-card-header) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.message-mindmaps :deep(.mindmap-card-meta) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.message-mindmaps :deep(.mindmap-card-title) {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.message-mindmaps :deep(.mindmap-card-subtitle) {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.message-analyses {
+  margin: 20px 0;
+}
+
+.message-analyses :deep(.analysis-card) {
+  border-radius: 18px;
+  border: 1px solid rgba(122, 162, 255, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(14, 22, 48, 0.98), rgba(10, 16, 36, 0.98));
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(2, 8, 23, 0.28);
+}
+
+.message-analyses :deep(.analysis-card-header) {
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.message-analyses :deep(.analysis-card-kicker) {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-primary);
+  margin-bottom: 8px;
+}
+
+.message-analyses :deep(.analysis-card-title) {
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.message-analyses :deep(.analysis-card-body) {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+
+.message-analyses :deep(.analysis-section) {
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.54);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.message-analyses :deep(.analysis-section.highlight) {
+  background: linear-gradient(180deg, rgba(8, 47, 73, 0.52), rgba(15, 23, 42, 0.62));
+  border-color: rgba(56, 189, 248, 0.22);
+}
+
+.message-analyses :deep(.section-header) {
+  margin-bottom: 10px;
+}
+
+.message-analyses :deep(.section-header h4) {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #67d4ff;
+}
+
+.message-analyses :deep(.section-content) {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+.message-analyses :deep(.highlight-title) {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.message-text :deep(.mindmap-artifact-note) {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.message-mindmaps :deep(.mindmap-card-body) {
+  overflow-x: auto;
+}
+
+.message-mindmaps :deep(.chat-jsmind-container) {
+  width: 100%;
+  min-width: 720px;
+  height: 520px;
+  overflow: auto;
+  position: relative;
+  background: #ffffff;
+  border-radius: 14px;
+}
+
+.message-mindmaps :deep(.chat-jsmind-container .jsmind-inner) {
+  background: #ffffff;
+  font-family: "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
+  width: 100%;
+  height: 100%;
+}
+
+.message-mindmaps :deep(.chat-jsmind-container jmnode) {
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.message-mindmaps :deep(.chat-jsmind-container jmnode:hover) {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
+}
+
 /* Responsive for papers */
 @media (max-width: 768px) {
   .message-text :deep(.papers-grid) {
@@ -1940,6 +3779,23 @@ onMounted(async () => {
     flex-direction: column;
     gap: 12px;
     align-items: flex-start;
+  }
+
+  .message-analyses :deep(.analysis-card-header) {
+    padding: 18px 18px 14px;
+  }
+
+  .message-analyses :deep(.analysis-card-title) {
+    font-size: 22px;
+  }
+
+  .message-analyses :deep(.analysis-card-body) {
+    padding: 18px;
+  }
+
+  .message-mindmaps :deep(.mindmap-card-header) {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
@@ -2018,26 +3874,59 @@ onMounted(async () => {
   }
 
   .chat-header {
-    padding: 16px 20px 0;
+    width: min(100% - 40px, 920px);
+    padding: 18px 0 0;
+  }
+
+  .paper-upload-notice {
+    width: min(100% - 40px, 920px);
   }
 
   .chat-messages {
-    padding: 0 20px 20px;
+    width: min(100% - 40px, 920px);
+    padding: 0 0 20px;
   }
 
   .chat-input-container {
-    padding: 16px 20px;
+    padding: 14px 0;
   }
+
+  .chat-input-wrapper {
+    width: min(100% - 40px, 920px);
+  }
+
 }
 
 @media (max-width: 768px) {
   .chat-header {
     flex-direction: column;
-    padding: 12px 16px 0;
+    width: calc(100% - 32px);
+    padding: 14px 0 0;
+    gap: 14px;
+  }
+
+  .paper-upload-notice {
+    width: calc(100% - 32px);
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .header-actions.compact-attachments {
+    width: auto;
+    justify-content: flex-start;
+  }
+
+  .header-action-btn {
+    flex: 1;
+    padding-inline: 10px;
   }
 
   .message {
     gap: 12px;
+    width: 100%;
   }
 
   .message-avatar {
@@ -2050,14 +3939,6 @@ onMounted(async () => {
     font-size: 13px;
   }
 
-  .suggested-prompts {
-    flex-direction: column;
-  }
-
-  .prompt-btn {
-    width: 100%;
-  }
-  
   .message-text :deep(.katex-block) {
     padding: 0.4rem 0.75rem;
     font-size: 0.9em;
@@ -2068,11 +3949,42 @@ onMounted(async () => {
   }
 
   .chat-messages {
-    padding: 0 16px 16px;
+    width: calc(100% - 32px);
+    padding: 0 0 16px;
+  }
+
+  .empty-state {
+    min-height: 320px;
+    padding: 32px 20px;
+  }
+
+  .ai-logo-stage {
+    width: 220px;
+    height: 220px;
+    margin-bottom: 14px;
+  }
+
+  .empty-icon {
+    width: 104px;
+    height: 104px;
+    border-radius: 28px;
+  }
+
+  .empty-icon svg {
+    width: 60px;
+    height: 60px;
+  }
+
+  .empty-state h3 {
+    font-size: 25px;
   }
 
   .chat-input-container {
-    padding: 12px 16px;
+    padding: 12px 0;
+  }
+
+  .chat-input-wrapper {
+    width: calc(100% - 32px);
   }
 
   .new-chat-btn span {
@@ -2086,6 +3998,18 @@ onMounted(async () => {
 
   .conv-meta {
     font-size: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-icon,
+  .empty-icon::before,
+  .logo-halo,
+  .logo-orbit,
+  .logo-particles span,
+  .logo-reflection,
+  .empty-state::before {
+    animation: none;
   }
 }
 

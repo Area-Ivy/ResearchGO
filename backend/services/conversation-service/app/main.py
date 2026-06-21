@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import logging
 
-from app.api import conversations_router
+from app.api import conversation_stats_router, conversations_router
 from app.database import init_db
 
 load_dotenv()
@@ -35,6 +35,7 @@ app.add_middleware(
 )
 
 # 包含路由
+app.include_router(conversation_stats_router)
 app.include_router(conversations_router)
 
 
@@ -88,4 +89,3 @@ async def shutdown_event():
         logger.warning(f"Consul deregistration failed: {e}")
     
     logger.info("关闭对话服务...")
-

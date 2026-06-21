@@ -12,6 +12,7 @@ ENV/
 # Node
 node_modules/
 dist/
+dist-*/
 .DS_Store
 
 # 数据目录
@@ -38,7 +39,14 @@ docker-compose.override.yml
 *.log
 logs/
 
+# Local build/deploy artifacts
+.codex_tmp/
+outputs/
+*.tar.gz
+*.zip
+
 # 操作系统
 .DS_Store
 Thumbs.db
 
+backend/reranker/

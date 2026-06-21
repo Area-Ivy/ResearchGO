@@ -2,40 +2,11 @@
  * Literature Search API
  * Interfaces with Literature Search Service (port 8005)
  */
-import axios from 'axios'
 import { LITERATURE_SERVICE_URL } from '../config'
+import { createServiceClient } from './client'
 
 // Create a dedicated axios instance for the literature service
-const literatureClient = axios.create({
-  baseURL: LITERATURE_SERVICE_URL
-})
-
-// Request interceptor: automatically add token
-literatureClient.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => {
-    return Promise.reject(error)
-  }
-)
-
-// Response interceptor: handle 401 errors
-literatureClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response && error.response.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/login'
-    }
-    return Promise.reject(error)
-  }
-)
+const literatureClient = createServiceClient(LITERATURE_SERVICE_URL)
 
 /**
  * Search for academic works
